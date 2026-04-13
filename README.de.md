@@ -1,4 +1,13 @@
+> 🇨🇭 **Teil des [Swiss Public Data MCP Portfolios](https://github.com/malkreide)**
+
 # 🏙️ Zurich Open Data MCP Server
+
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-purple)](https://modelcontextprotocol.io/)
+[![No Auth Required](https://img.shields.io/badge/auth-none%20required-brightgreen)](https://github.com/malkreide/zurich-opendata-mcp)
+![CI](https://github.com/malkreide/zurich-opendata-mcp/actions/workflows/ci.yml/badge.svg)
 
 🌐 **[English](README.md)** | **Deutsch**
 
@@ -240,6 +249,17 @@ python tests/test_integration.py
 # Linting
 ruff check src/
 ```
+
+## Sicherheit & Grenzen
+
+- **Nur-Lesen:** Alle Tools verwenden ausschliesslich HTTP-GET-Anfragen — es werden keine Daten geschrieben, verändert oder gelöscht.
+- **Keine Personendaten:** Die APIs liefern offene Stadtdatensätze (Parkplatzbelegung, Wettermessungen, Parlamentsgeschäfte). Keine personenbezogenen Daten werden durch diesen Server verarbeitet oder gespeichert.
+- **Rate Limits:** CKAN-Suche und ParkenDD sind öffentliche APIs ohne dokumentierte Rate Limits; `rows`- und `limit`-Parameter konservativ einsetzen. Der Server erzwingt ein 30-Sekunden-Timeout pro Anfrage.
+- **Datenaktualität:** Echtzeit-Tools (Parkplätze, Wetter, Luftqualität) spiegeln den Upstream-Stand zum Abfragezeitpunkt wider. Dieser Server nimmt kein Caching vor.
+- **Nutzungsbedingungen:** Die Daten unterliegen den Nutzungsbedingungen der jeweiligen Quelle — [data.stadt-zuerich.ch](https://data.stadt-zuerich.ch), [ParkenDD](https://github.com/offenesdresden/ParkAPI), [gemeinderat-zuerich.ch](https://www.gemeinderat-zuerich.ch). Alle Stadtdaten stehen unter CC0 (Open by Default seit 2021).
+- **Keine Gewähr:** Dieses Projekt ist eine Community-Initiative ohne Verbindung zur Stadt Zürich oder den API-Anbietern. Verfügbarkeit hängt von den vorgelagerten APIs ab.
+
+---
 
 ## 📜 Lizenz
 

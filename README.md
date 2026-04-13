@@ -1,4 +1,13 @@
+> 🇨🇭 **Part of the [Swiss Public Data MCP Portfolio](https://github.com/malkreide)**
+
 # 🏙️ Zurich Open Data MCP Server
+
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-purple)](https://modelcontextprotocol.io/)
+[![No Auth Required](https://img.shields.io/badge/auth-none%20required-brightgreen)](https://github.com/malkreide/zurich-opendata-mcp)
+![CI](https://github.com/malkreide/zurich-opendata-mcp/actions/workflows/ci.yml/badge.svg)
 
 🌐 **English** | **[Deutsch](README.de.md)**
 
@@ -6,9 +15,9 @@ An MCP (Model Context Protocol) server providing AI-powered access to **Open Dat
 
 > Enables Claude, ChatGPT, and other MCP-compatible AI assistants to directly query 900+ datasets, geodata, parliamentary proceedings, tourism data, linked data, and real-time environmental and mobility information from the City of Zurich. **20 Tools, 6 Resources, 6 APIs.**
 
-<p align="center">
-  <img src="assets/demo.png" alt="Demo: Claude queries school facilities via MCP tool call" width="720">
-</p>
+### Demo
+
+![Demo: Claude using zurich_parking_live and zurich_air_quality](docs/assets/demo.svg)
 
 ## ✨ Features
 
@@ -155,18 +164,6 @@ Once configured, you can ask Claude:
 - *"What restaurants does Zurich Tourism recommend?"* → `zurich_tourism`
 - *"How has Zurich's population evolved?"* → `zurich_sparql`
 
-## 🛡️ Safety & Limits
-
-| Aspect | Details |
-|--------|---------|
-| **Access** | Read-only (`readOnlyHint: true`) — the server cannot modify or delete any data |
-| **Personal data** | No personal data — all sources are aggregated, public open data |
-| **Rate limits** | Built-in per-query caps (e.g. max 100 records, 500 geo features, 50 search results) |
-| **Timeout** | 30 seconds per API call |
-| **Authentication** | No API keys required — all 6 APIs are publicly accessible |
-| **Licenses** | All data under CC0 / open licenses (Open by Default since 2021) |
-| **Terms of Service** | Subject to ToS of the respective data sources: [City of Zurich Open Data](https://data.stadt-zuerich.ch), [Zurich City Parliament](https://www.gemeinderat-zuerich.ch), [Zurich Tourism](https://www.zuerich.com) |
-
 ## 🔗 Data Sources
 
 | API | Endpoint | Data |
@@ -252,6 +249,17 @@ python tests/test_integration.py
 # Linting
 ruff check src/
 ```
+
+## Safety & Limits
+
+- **Read-only:** All tools perform HTTP GET requests only — no data is written, modified, or deleted.
+- **No personal data:** The APIs return open civic datasets (parking occupancy, weather readings, parliamentary proceedings). No personally identifiable information (PII) is processed or stored by this server.
+- **Rate limits:** CKAN Solr search and ParkenDD are public APIs without documented rate limits; use `rows` and `limit` parameters conservatively. The server enforces a 30s timeout per request.
+- **Data freshness:** Real-time tools (parking, weather, air quality) reflect the upstream source at query time. No caching is performed by this server.
+- **Terms of service:** Data is subject to the ToS of each source — [data.stadt-zuerich.ch](https://data.stadt-zuerich.ch), [ParkenDD](https://github.com/offenesdresden/ParkAPI), [gemeinderat-zuerich.ch](https://www.gemeinderat-zuerich.ch). All City of Zurich data is published under CC0 (Open by Default since 2021).
+- **No guarantees:** This server is a community project, not affiliated with the City of Zurich or any of the API providers. Availability depends on upstream APIs.
+
+---
 
 ## 📜 License
 

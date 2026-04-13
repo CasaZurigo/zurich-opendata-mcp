@@ -10,10 +10,6 @@ readme      = "README.md"
 license     = { file = "LICENSE" }
 requires-python = ">=3.11"
 
-authors = [
-    { name = "Schulamt Stadt Zürich" },
-]
-
 keywords = [
     "mcp", "model-context-protocol", "open-data", "zurich",
     "ckan", "stadt-zuerich", "geodata", "wfs", "sparql",
@@ -50,13 +46,12 @@ dev = [
 ]
 
 [project.scripts]
-zurich-opendata-mcp = "zurich_opendata_mcp.server:main"
+zurich-opendata-mcp = "zurich_opendata_mcp.server:mcp.run"
 
 [project.urls]
 Homepage   = "https://github.com/malkreide/zurich-opendata-mcp"
 Repository = "https://github.com/malkreide/zurich-opendata-mcp"
 Issues     = "https://github.com/malkreide/zurich-opendata-mcp/issues"
-Changelog  = "https://github.com/malkreide/zurich-opendata-mcp/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/zurich_opendata_mcp"]

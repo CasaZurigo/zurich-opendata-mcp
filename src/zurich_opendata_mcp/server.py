@@ -102,6 +102,7 @@ def _port(value: str) -> int:
 
 def _parse_args(argv: list[str] | None = None):
     import argparse
+    import os
 
     parser = argparse.ArgumentParser(
         prog="zurich-opendata-mcp",
@@ -113,10 +114,18 @@ def _parse_args(argv: list[str] | None = None):
         help="Run over Streamable HTTP instead of stdio.",
     )
     parser.add_argument(
+        "--host",
+        default=os.environ.get("HOST", "127.0.0.1"),
+        help=(
+            "Interface to bind for HTTP (default: $HOST or 127.0.0.1; "
+            "use :: to accept IPv4+IPv6, e.g. on Railway's private network)."
+        ),
+    )
+    parser.add_argument(
         "--port",
         type=_port,
-        default=8000,
-        help="HTTP port (1-65535, default: 8000; only used with --http).",
+        default=_port(os.environ.get("PORT", "8000")),
+        help="HTTP port (1-65535, default: $PORT or 8000; only used with --http).",
     )
     return parser.parse_args(argv)
 
@@ -137,7 +146,12 @@ def main() -> None:
 
     args = _parse_args()
     if args.http:
-        mcp.run(transport="streamable-http", port=args.port)
+        # FastMCP reads host/port from its settings (no host/port kwargs on
+        # run()). Setting them here lets a container platform inject $HOST/$PORT
+        # while local runs keep the safe 127.0.0.1 loopback default.
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        mcp.run(transport="streamable-http")
     else:
         mcp.run()
 

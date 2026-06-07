@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Container/Railway deployment support for the Streamable-HTTP transport: a
+  `Dockerfile` and `.dockerignore` that build the console script and serve the
+  MCP endpoint at `/mcp`. The image binds `::` and honours `$HOST`/`$PORT` so
+  the server is reachable over Railway's private network for other services.
+- `--host` CLI flag (defaults to `$HOST` or `127.0.0.1`); `--port` now also
+  defaults to `$PORT` when set, easing platform-injected port binding.
+
+### Fixed
+- `zurich-opendata-mcp --http` no longer crashes on startup. `FastMCP.run()`
+  takes no `host`/`port` kwargs in `mcp>=1.27`, so the previous
+  `mcp.run(transport="streamable-http", port=...)` raised `TypeError`. Host
+  and port are now applied via `mcp.settings` before `run()`.
+
 ### Changed
 - Bumped runtime and dev-dependency floors in `pyproject.toml` (#17,
   Dependabot grouped update): `mcp[cli]>=1.27.1`, `httpx>=0.28.1`,

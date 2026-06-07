@@ -309,3 +309,5 @@ Hayal Oezkan · [malkreide](https://github.com/malkreide)
 ---
 
 *Powered by [Model Context Protocol](https://modelcontextprotocol.io/) • 6 APIs • 24 Tools • 5 Resources*
+
+<!-- mcp-name: io.github.malkreide/zurich-opendata-mcp -->

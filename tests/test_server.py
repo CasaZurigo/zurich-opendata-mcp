@@ -142,13 +142,17 @@ async def test_geo_features():
 @pytest.mark.live
 async def test_parliament_search():
     result = await zurich_parliament_search(query="Schule", max_results=5)
+    assert "Fehler" not in result
     assert "Schul" in result or "GR Nr" in result or "Treffer" in result
 
 
 @pytest.mark.live
 async def test_parliament_members():
-    result = await zurich_parliament_members(active_only=True)
-    assert "Mitglied" in result or "Partei" in result or "Mandat" in result or "Gemeinderat" in result
+    result = await zurich_parliament_members(party="SP", max_results=5)
+    # "Gemeinderat" appears in the German error string too, so it cannot be an
+    # accepted marker — assert the call did not error and returned real members.
+    assert "Fehler" not in result
+    assert "Partei" in result or "Mitglied" in result or "Mandat" in result
 
 
 # ─── Tourism & SPARQL ────────────────────────────────────────────────────────
@@ -707,12 +711,14 @@ def test_kontakt_cql_escapes_name_and_party():
     assert 'Partei any "SP\\" OR Partei any \\"FDP"' in cql
 
 
-def test_kontakt_cql_active_only_default():
+def test_kontakt_cql_empty_matches_all():
     from zurich_opendata_mcp.tools.parliament import _build_kontakt_cql
 
-    # Empty input should still produce the active-only filter, not an empty CQL.
+    # Empty input must still produce a valid CQL (the Paris API rejects an
+    # empty query); active-only is no longer expressible on the Kontakt index.
     cql = _build_kontakt_cql()
-    assert cql == 'AktivesRatsmitglied = "true"'
+    assert cql == 'NameVorname any "*"'
+    assert "AktivesRatsmitglied" not in cql
 
 
 async def test_analyze_datasets_does_not_call_package_show():

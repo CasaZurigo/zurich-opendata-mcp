@@ -52,17 +52,17 @@ def _build_behoerdenmandat_cql(
 def _build_kontakt_cql(
     name: str | None = None,
     party: str | None = None,
-    active_only: bool = True,
 ) -> str:
     cql_parts: list[str] = []
     if name:
         cql_parts.append(f'NameVorname any "{cql_escape(name)}"')
     if party:
         cql_parts.append(f'Partei any "{cql_escape(party)}"')
-    if active_only:
-        cql_parts.append('AktivesRatsmitglied = "true"')
     if not cql_parts:
-        cql_parts.append('AktivesRatsmitglied = "true"')
+        # No name/party filter: match all contacts. The Paris API dropped the
+        # `AktivesRatsmitglied` field, so active-only can no longer be expressed
+        # as a CQL predicate on the Kontakt index.
+        cql_parts.append('NameVorname any "*"')
     return " AND ".join(cql_parts)
 
 
@@ -303,11 +303,12 @@ async def zurich_parliament_members(
             return "\n".join(lines)
 
         else:
-            # Search via Kontakt index
+            # Search via Kontakt index. active_only is not applied here: the
+            # Paris API no longer exposes an active-membership field on this
+            # index (it is still honoured on the Behoerdenmandat path above).
             cql = _build_kontakt_cql(
                 name=params.name,
                 party=params.party,
-                active_only=params.active_only,
             )
 
             root = await paris_search("kontakt", cql, max_results=params.max_results)

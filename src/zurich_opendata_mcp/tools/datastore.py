@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Annotated
 
 import sqlparse
 from pydantic import BaseModel, ConfigDict, Field
@@ -71,7 +72,14 @@ class DatastoreQueryInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_datastore_query(params: DatastoreQueryInput) -> str:
+async def zurich_datastore_query(
+    resource_id: Annotated[str, DatastoreQueryInput.model_fields["resource_id"]],
+    filters: Annotated[str | None, DatastoreQueryInput.model_fields["filters"]] = None,
+    query: Annotated[str | None, DatastoreQueryInput.model_fields["query"]] = None,
+    sort: Annotated[str | None, DatastoreQueryInput.model_fields["sort"]] = None,
+    limit: Annotated[int, DatastoreQueryInput.model_fields["limit"]] = 20,
+    offset: Annotated[int, DatastoreQueryInput.model_fields["offset"]] = 0,
+) -> str:
     """Fragt tabellarische Daten direkt aus dem CKAN DataStore ab.
 
     Ermöglicht gefilterte Abfragen auf Ressourcen, die im DataStore
@@ -80,6 +88,14 @@ async def zurich_datastore_query(params: DatastoreQueryInput) -> str:
     Returns:
         Markdown-Tabelle mit Daten und Feld-Informationen
     """
+    params = DatastoreQueryInput(
+        resource_id=resource_id,
+        filters=filters,
+        query=query,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+    )
     try:
         api_params: dict = {
             "resource_id": params.resource_id,
@@ -157,7 +173,9 @@ class DatastoreSqlInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_datastore_sql(params: DatastoreSqlInput) -> str:
+async def zurich_datastore_sql(
+    sql: Annotated[str, DatastoreSqlInput.model_fields["sql"]],
+) -> str:
     """Führt eine SQL-Abfrage auf dem CKAN DataStore aus.
 
     Ermöglicht komplexe Abfragen mit JOINs, GROUP BY, Aggregationen etc.
@@ -166,6 +184,7 @@ async def zurich_datastore_sql(params: DatastoreSqlInput) -> str:
     Returns:
         JSON-Ergebnisse der SQL-Abfrage
     """
+    params = DatastoreSqlInput(sql=sql)
     try:
         validation_error = _validate_select_only(params.sql)
         if validation_error:

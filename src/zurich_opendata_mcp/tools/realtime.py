@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -104,7 +105,11 @@ class WeatherLiveInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_weather_live(params: WeatherLiveInput) -> str:
+async def zurich_weather_live(
+    station: Annotated[str | None, WeatherLiveInput.model_fields["station"]] = None,
+    parameter: Annotated[str | None, WeatherLiveInput.model_fields["parameter"]] = None,
+    limit: Annotated[int, WeatherLiveInput.model_fields["limit"]] = 20,
+) -> str:
     """Liefert stündlich aktualisierte Wetterdaten der UGZ-Messstationen Zürich.
 
     Datenquelle: Umwelt- und Gesundheitsschutz Stadt Zürich (UGZ).
@@ -114,6 +119,7 @@ async def zurich_weather_live(params: WeatherLiveInput) -> str:
     Returns:
         Aktuelle Temperatur, Luftfeuchte, Luftdruck, Regendauer je Station
     """
+    params = WeatherLiveInput(station=station, parameter=parameter, limit=limit)
     try:
         api_params: dict = {
             "resource_id": METEO_RESOURCE_ID,
@@ -206,7 +212,11 @@ class AirQualityInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_air_quality(params: AirQualityInput) -> str:
+async def zurich_air_quality(
+    station: Annotated[str | None, AirQualityInput.model_fields["station"]] = None,
+    parameter: Annotated[str | None, AirQualityInput.model_fields["parameter"]] = None,
+    limit: Annotated[int, AirQualityInput.model_fields["limit"]] = 30,
+) -> str:
     """Liefert stündlich aktualisierte Luftqualitätsmessungen aus Zürich.
 
     Datenquelle: Umwelt- und Gesundheitsschutz Stadt Zürich (UGZ).
@@ -215,6 +225,7 @@ async def zurich_air_quality(params: AirQualityInput) -> str:
     Returns:
         Aktuelle Schadstoffwerte je Station mit Einheiten
     """
+    params = AirQualityInput(station=station, parameter=parameter, limit=limit)
     try:
         api_params: dict = {
             "resource_id": AIR_QUALITY_RESOURCE_ID,
@@ -297,7 +308,10 @@ class WaterWeatherInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_water_weather(params: WaterWeatherInput) -> str:
+async def zurich_water_weather(
+    station: Annotated[WaterStation, WaterWeatherInput.model_fields["station"]] = "tiefenbrunnen",
+    limit: Annotated[int, WaterWeatherInput.model_fields["limit"]] = 6,
+) -> str:
     """Liefert Echtzeit-Wetterdaten der Wasserschutzpolizei Zürich.
 
     Stationen am Zürichsee: Tiefenbrunnen und Mythenquai.
@@ -307,6 +321,7 @@ async def zurich_water_weather(params: WaterWeatherInput) -> str:
     Returns:
         Aktuelle See-Messwerte mit Wasser- und Lufttemperatur, Wind, Pegel
     """
+    params = WaterWeatherInput(station=station, limit=limit)
     try:
         resource_id = WATER_TIEFENBRUNNEN_ID if params.station == "tiefenbrunnen" else WATER_MYTHENQUAI_ID
         station_name = "Tiefenbrunnen" if params.station == "tiefenbrunnen" else "Mythenquai"
@@ -376,7 +391,9 @@ class PedestrianInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_pedestrian_traffic(params: PedestrianInput) -> str:
+async def zurich_pedestrian_traffic(
+    limit: Annotated[int, PedestrianInput.model_fields["limit"]] = 24,
+) -> str:
     """Liefert stündliche Passantenfrequenzen an der Zürcher Bahnhofstrasse.
 
     Datenquelle: hystreet.com Sensoren an 3 Standorten (Nord, Mitte, Süd).
@@ -385,6 +402,7 @@ async def zurich_pedestrian_traffic(params: PedestrianInput) -> str:
     Returns:
         Stundenwerte der Passantenfrequenz (neueste zuerst)
     """
+    params = PedestrianInput(limit=limit)
     try:
         result = await ckan_request(
             "datastore_search",
@@ -454,7 +472,12 @@ class VBZPassengersInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_vbz_passengers(params: VBZPassengersInput) -> str:
+async def zurich_vbz_passengers(
+    line: Annotated[str | None, VBZPassengersInput.model_fields["line"]] = None,
+    stop: Annotated[str | None, VBZPassengersInput.model_fields["stop"]] = None,
+    query: Annotated[str | None, VBZPassengersInput.model_fields["query"]] = None,
+    limit: Annotated[int, VBZPassengersInput.model_fields["limit"]] = 20,
+) -> str:
     """Fragt Fahrgastzahlen der Verkehrsbetriebe Zürich (VBZ) ab.
 
     Jährlich aktualisierte Ein-/Aussteiger-Zahlen pro Linie und Haltestelle.
@@ -463,6 +486,7 @@ async def zurich_vbz_passengers(params: VBZPassengersInput) -> str:
     Returns:
         Fahrgastzahlen mit Linien- und Haltestellendetails
     """
+    params = VBZPassengersInput(line=line, stop=stop, query=query, limit=limit)
     try:
         api_params: dict = {
             "resource_id": VBZ_REISENDE_ID,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -143,7 +144,14 @@ class SearchSTRBInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def search_stadtratsbeschluesse(params: SearchSTRBInput) -> str:
+async def search_stadtratsbeschluesse(
+    query: Annotated[str, SearchSTRBInput.model_fields["query"]],
+    departement: Annotated[str | None, SearchSTRBInput.model_fields["departement"]] = None,
+    datum_von: Annotated[str | None, SearchSTRBInput.model_fields["datum_von"]] = None,
+    datum_bis: Annotated[str | None, SearchSTRBInput.model_fields["datum_bis"]] = None,
+    limit: Annotated[int, SearchSTRBInput.model_fields["limit"]] = 20,
+    format: Annotated[OutputFormat, SearchSTRBInput.model_fields["format"]] = "markdown",
+) -> str:
     """Durchsucht die öffentlichen Stadtratsbeschlüsse (STRB) der Stadt Zürich per Volltext.
 
     Nutzt den CKAN Datastore SQL-Endpoint für flexible ILIKE-Suche im Beschlusstitel
@@ -169,6 +177,7 @@ async def search_stadtratsbeschluesse(params: SearchSTRBInput) -> str:
             - departement: Federführendes Departement (mit Kürzel)
             - link: Direktlink auf stadt-zuerich.ch
     """
+    params = SearchSTRBInput(query=query, departement=departement, datum_von=datum_von, datum_bis=datum_bis, limit=limit, format=format)
     try:
         where = _strb_where_clause(
             query=params.query,
@@ -261,7 +270,13 @@ class BeschluesseDepartementInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def get_beschluesse_by_departement(params: BeschluesseDepartementInput) -> str:
+async def get_beschluesse_by_departement(
+    departement: Annotated[str, BeschluesseDepartementInput.model_fields["departement"]],
+    datum_von: Annotated[str | None, BeschluesseDepartementInput.model_fields["datum_von"]] = None,
+    datum_bis: Annotated[str | None, BeschluesseDepartementInput.model_fields["datum_bis"]] = None,
+    limit: Annotated[int, BeschluesseDepartementInput.model_fields["limit"]] = 50,
+    format: Annotated[OutputFormat, BeschluesseDepartementInput.model_fields["format"]] = "markdown",
+) -> str:
     """Gibt alle öffentlichen Stadtratsbeschlüsse eines Departements zurück.
 
     Ideal für institutionelle Analysen, z.B. alle Beschlüsse des Schul- und
@@ -279,6 +294,7 @@ async def get_beschluesse_by_departement(params: BeschluesseDepartementInput) ->
         str: Liste aller Beschlüsse des Departements. Jeder Eintrag enthält:
             - beschlussnummer, titel, datum, departement, link
     """
+    params = BeschluesseDepartementInput(departement=departement, datum_von=datum_von, datum_bis=datum_bis, limit=limit, format=format)
     try:
         where = _strb_where_clause(
             departement=params.departement,
@@ -339,7 +355,9 @@ class GetSTRBDetailInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def get_stadtratsbeschluss_detail(params: GetSTRBDetailInput) -> str:
+async def get_stadtratsbeschluss_detail(
+    beschlussnummer: Annotated[str, GetSTRBDetailInput.model_fields["beschlussnummer"]],
+) -> str:
     """Gibt die Metadaten eines einzelnen Stadtratsbeschlusses anhand der Beschlussnummer zurück.
 
     Liefert Titel, Datum, Departement und den direkten Link zum vollständigen
@@ -353,6 +371,7 @@ async def get_stadtratsbeschluss_detail(params: GetSTRBDetailInput) -> str:
         str: Markdown-Detailansicht mit beschlussnummer, titel, datum, departement, link.
              Fehlermeldung wenn Beschluss nicht gefunden oder ausserhalb des Archivs (vor Feb 2025).
     """
+    params = GetSTRBDetailInput(beschlussnummer=beschlussnummer)
     try:
         result = await ckan_request(
             "datastore_search",

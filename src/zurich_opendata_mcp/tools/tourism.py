@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..app import mcp
@@ -44,7 +46,12 @@ class TourismSearchInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_tourism(params: TourismSearchInput) -> str:
+async def zurich_tourism(
+    category: Annotated[str, TourismSearchInput.model_fields["category"]],
+    search_text: Annotated[str | None, TourismSearchInput.model_fields["search_text"]] = None,
+    max_results: Annotated[int, TourismSearchInput.model_fields["max_results"]] = 10,
+    language: Annotated[TourismLanguage, TourismSearchInput.model_fields["language"]] = "de",
+) -> str:
     """Sucht Attraktionen, Restaurants, Hotels und Events über die Zürich Tourismus API.
 
     Liefert Informationen zu Sehenswürdigkeiten, gastronomischen Angeboten,
@@ -54,6 +61,9 @@ async def zurich_tourism(params: TourismSearchInput) -> str:
     Returns:
         Markdown-formatierte Liste der Tourismus-Einträge
     """
+    params = TourismSearchInput(
+        category=category, search_text=search_text, max_results=max_results, language=language
+    )
     try:
         # Resolve category
         if params.category.isdigit():

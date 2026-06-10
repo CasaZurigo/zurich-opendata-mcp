@@ -10,22 +10,8 @@ import pytest
 
 import zurich_opendata_mcp.server as server_module
 from zurich_opendata_mcp.server import (
-    AirQualityInput,
-    AnalyzeDatasetInput,
-    FindSchoolDataInput,
-    GeoFeaturesInput,
     GetDatasetInput,
-    ListGroupInput,
-    ParliamentMembersInput,
-    ParliamentSearchInput,
-    PedestrianInput,
     SearchDatasetsInput,
-    SparqlQueryInput,
-    TagSearchInput,
-    TourismSearchInput,
-    VBZPassengersInput,
-    WaterWeatherInput,
-    WeatherLiveInput,
     zurich_air_quality,
     zurich_analyze_datasets,
     zurich_catalog_stats,
@@ -61,32 +47,32 @@ def test_server_module_exposes_mcp_instance():
 
 @pytest.mark.live
 async def test_search_datasets():
-    result = await zurich_search_datasets(SearchDatasetsInput(query="Schule", rows=3))
+    result = await zurich_search_datasets(query="Schule", rows=3)
     assert "Datensätze" in result
     assert "Schul" in result
 
 
 @pytest.mark.live
 async def test_get_dataset():
-    result = await zurich_get_dataset(GetDatasetInput(dataset_id="ssd_schulferien"))
+    result = await zurich_get_dataset(dataset_id="ssd_schulferien")
     assert "Ferien" in result or "Schulferien" in result
 
 
 @pytest.mark.live
 async def test_list_categories_all():
-    result = await zurich_list_categories(ListGroupInput())
+    result = await zurich_list_categories()
     assert "Bildung" in result
 
 
 @pytest.mark.live
 async def test_list_categories_bildung():
-    result = await zurich_list_categories(ListGroupInput(group_id="bildung"))
+    result = await zurich_list_categories(group_id="bildung")
     assert "Bildung" in result
 
 
 @pytest.mark.live
 async def test_list_tags():
-    result = await zurich_list_tags(TagSearchInput(query="schul"))
+    result = await zurich_list_tags(query="schul")
     assert "schul" in result.lower()
 
 
@@ -101,35 +87,35 @@ async def test_parking_live():
 
 @pytest.mark.live
 async def test_weather_live():
-    result = await zurich_weather_live(WeatherLiveInput(parameter="T", limit=5))
+    result = await zurich_weather_live(parameter="T", limit=5)
     assert "°C" in result
     assert "Fehler" not in result
 
 
 @pytest.mark.live
 async def test_air_quality():
-    result = await zurich_air_quality(AirQualityInput(limit=10))
+    result = await zurich_air_quality(limit=10)
     assert "Luftqualität" in result
     assert "Fehler" not in result
 
 
 @pytest.mark.live
 async def test_water_weather():
-    result = await zurich_water_weather(WaterWeatherInput(station="tiefenbrunnen", limit=2))
+    result = await zurich_water_weather(station="tiefenbrunnen", limit=2)
     assert "Wassertemperatur" in result
     assert "Fehler" not in result
 
 
 @pytest.mark.live
 async def test_pedestrian_traffic():
-    result = await zurich_pedestrian_traffic(PedestrianInput(limit=5))
+    result = await zurich_pedestrian_traffic(limit=5)
     assert "Passanten" in result or "Bahnhofstrasse" in result
     assert "Fehler" not in result
 
 
 @pytest.mark.live
 async def test_vbz_passengers():
-    result = await zurich_vbz_passengers(VBZPassengersInput(limit=5))
+    result = await zurich_vbz_passengers(limit=5)
     assert "VBZ" in result
     assert "Fehler" not in result
 
@@ -146,7 +132,7 @@ async def test_geo_layers():
 
 @pytest.mark.live
 async def test_geo_features():
-    result = await zurich_geo_features(GeoFeaturesInput(layer_id="schulanlagen", max_features=5))
+    result = await zurich_geo_features(layer_id="schulanlagen", max_features=5)
     assert "Feature" in result or "Schulanlage" in result or "Koordinaten" in result
 
 
@@ -155,13 +141,13 @@ async def test_geo_features():
 
 @pytest.mark.live
 async def test_parliament_search():
-    result = await zurich_parliament_search(ParliamentSearchInput(query="Schule", max_results=5))
+    result = await zurich_parliament_search(query="Schule", max_results=5)
     assert "Schul" in result or "GR Nr" in result or "Treffer" in result
 
 
 @pytest.mark.live
 async def test_parliament_members():
-    result = await zurich_parliament_members(ParliamentMembersInput(active_only=True))
+    result = await zurich_parliament_members(active_only=True)
     assert "Mitglied" in result or "Partei" in result or "Mandat" in result or "Gemeinderat" in result
 
 
@@ -170,13 +156,13 @@ async def test_parliament_members():
 
 @pytest.mark.live
 async def test_tourism():
-    result = await zurich_tourism(TourismSearchInput(category="restaurants", language="de"))
+    result = await zurich_tourism(category="restaurants", language="de")
     assert "Zürich" in result or "Restaurant" in result or "Tourismus" in result
 
 
 @pytest.mark.live
 async def test_sparql():
-    result = await zurich_sparql(SparqlQueryInput(query="SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"))
+    result = await zurich_sparql(query="SELECT ?s WHERE { ?s ?p ?o } LIMIT 1")
     assert "nicht produktiv" in result
 
 
@@ -185,9 +171,7 @@ async def test_sparql():
 
 @pytest.mark.live
 async def test_analyze_datasets():
-    result = await zurich_analyze_datasets(
-        AnalyzeDatasetInput(query="Verkehr", max_datasets=3, include_structure=True)
-    )
+    result = await zurich_analyze_datasets(query="Verkehr", max_datasets=3, include_structure=True)
     assert "Analyse" in result
 
 
@@ -199,7 +183,7 @@ async def test_catalog_stats():
 
 @pytest.mark.live
 async def test_find_school_data():
-    result = await zurich_find_school_data(FindSchoolDataInput())
+    result = await zurich_find_school_data()
     assert "Schulamt" in result or "Schul" in result
 
 
@@ -370,11 +354,9 @@ def test_user_agent_version_matches_package():
 
 
 async def test_sparql_returns_disabled_notice_without_calling_endpoint():
-    from zurich_opendata_mcp.tools.sparql import SparqlQueryInput, zurich_sparql
+    from zurich_opendata_mcp.tools.sparql import zurich_sparql
 
-    result = await zurich_sparql(
-        SparqlQueryInput(query="SELECT * WHERE { ?s ?p ?o } LIMIT 1")
-    )
+    result = await zurich_sparql(query="SELECT * WHERE { ?s ?p ?o } LIMIT 1")
     assert "nicht produktiv" in result
     # The disabled notice should always cite the alternatives.
     assert "zurich_search_datasets" in result
@@ -739,7 +721,6 @@ async def test_analyze_datasets_does_not_call_package_show():
     datastore_search calls now run concurrently via asyncio.gather."""
     import zurich_opendata_mcp.http_client as http_client_module
     from zurich_opendata_mcp.tools.catalog import (
-        AnalyzeDatasetInput,
         zurich_analyze_datasets,
     )
 
@@ -797,9 +778,7 @@ async def test_analyze_datasets_does_not_call_package_show():
     import zurich_opendata_mcp.tools.catalog as catalog_module
     catalog_module.ckan_request = fake_ckan
     try:
-        result = await zurich_analyze_datasets(
-            AnalyzeDatasetInput(query="x", max_datasets=2, include_structure=True)
-        )
+        result = await zurich_analyze_datasets(query="x", max_datasets=2, include_structure=True)
     finally:
         http_client_module.ckan_request = original
         catalog_module.ckan_request = original

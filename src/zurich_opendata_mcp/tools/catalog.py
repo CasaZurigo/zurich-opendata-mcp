@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -46,7 +47,13 @@ class SearchDatasetsInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_search_datasets(params: SearchDatasetsInput) -> str:
+async def zurich_search_datasets(
+    query: Annotated[str, SearchDatasetsInput.model_fields["query"]],
+    rows: Annotated[int, SearchDatasetsInput.model_fields["rows"]] = 10,
+    offset: Annotated[int, SearchDatasetsInput.model_fields["offset"]] = 0,
+    sort: Annotated[str | None, SearchDatasetsInput.model_fields["sort"]] = None,
+    filter_group: Annotated[ZurichGroup | None, SearchDatasetsInput.model_fields["filter_group"]] = None,
+) -> str:
     """Durchsucht den Open-Data-Katalog der Stadt Zürich nach Datensätzen.
 
     Nutzt die CKAN-Suchmaschine (Solr) für Volltextsuche über Titel,
@@ -55,6 +62,7 @@ async def zurich_search_datasets(params: SearchDatasetsInput) -> str:
     Returns:
         Markdown-formatierte Liste mit Datensatz-Zusammenfassungen
     """
+    params = SearchDatasetsInput(query=query, rows=rows, offset=offset, sort=sort, filter_group=filter_group)
     try:
         # Solr behandelt q=* anders als q=*:* – nur letzteres liefert alle Datensätze
         query = "*:*" if params.query.strip() == "*" else params.query
@@ -115,7 +123,9 @@ class GetDatasetInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_get_dataset(params: GetDatasetInput) -> str:
+async def zurich_get_dataset(
+    dataset_id: Annotated[str, GetDatasetInput.model_fields["dataset_id"]],
+) -> str:
     """Ruft vollständige Metadaten und Ressourcen eines Datensatzes ab.
 
     Gibt Titel, Beschreibung, Autor, Lizenz, Aktualisierungsintervall,
@@ -124,6 +134,7 @@ async def zurich_get_dataset(params: GetDatasetInput) -> str:
     Returns:
         Detaillierte Markdown-Ansicht des Datensatzes mit allen Ressourcen
     """
+    params = GetDatasetInput(dataset_id=dataset_id)
     try:
         result = await ckan_request("package_show", {"id": params.dataset_id})
 
@@ -167,7 +178,9 @@ class ListGroupInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_list_categories(params: ListGroupInput) -> str:
+async def zurich_list_categories(
+    group_id: Annotated[ZurichGroup | None, ListGroupInput.model_fields["group_id"]] = None,
+) -> str:
     """Listet alle Datenkategorien (Gruppen) im Katalog auf oder zeigt Details einer Kategorie.
 
     Die Stadt Zürich organisiert ihre Datensätze in 19 thematische Kategorien
@@ -176,6 +189,7 @@ async def zurich_list_categories(params: ListGroupInput) -> str:
     Returns:
         Markdown-Liste der Kategorien mit Datensatz-Anzahl
     """
+    params = ListGroupInput(group_id=group_id)
     try:
         if params.group_id:
             result = await ckan_request(
@@ -227,7 +241,10 @@ class TagSearchInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_list_tags(params: TagSearchInput) -> str:
+async def zurich_list_tags(
+    query: Annotated[str | None, TagSearchInput.model_fields["query"]] = None,
+    limit: Annotated[int, TagSearchInput.model_fields["limit"]] = 30,
+) -> str:
     """Durchsucht verfügbare Tags im Open-Data-Katalog.
 
     Tags helfen, thematisch verwandte Datensätze zu finden.
@@ -236,6 +253,7 @@ async def zurich_list_tags(params: TagSearchInput) -> str:
     Returns:
         Liste passender Tags
     """
+    params = TagSearchInput(query=query, limit=limit)
     try:
         api_params: dict = {}
         if params.query:
@@ -283,7 +301,12 @@ class AnalyzeDatasetInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_analyze_datasets(params: AnalyzeDatasetInput) -> str:
+async def zurich_analyze_datasets(
+    query: Annotated[str, AnalyzeDatasetInput.model_fields["query"]],
+    max_datasets: Annotated[int, AnalyzeDatasetInput.model_fields["max_datasets"]] = 5,
+    include_structure: Annotated[bool, AnalyzeDatasetInput.model_fields["include_structure"]] = True,
+    include_freshness: Annotated[bool, AnalyzeDatasetInput.model_fields["include_freshness"]] = True,
+) -> str:
     """Analysiert Datensätze umfassend: Relevanz, Aktualität und Datenstruktur.
 
     Kombiniert Suche mit Analyse der Update-Frequenz und Feld-Schemas.
@@ -293,6 +316,12 @@ async def zurich_analyze_datasets(params: AnalyzeDatasetInput) -> str:
     Returns:
         Umfassender Analyse-Report mit Relevanz, Aktualität und Struktur
     """
+    params = AnalyzeDatasetInput(
+        query=query,
+        max_datasets=max_datasets,
+        include_structure=include_structure,
+        include_freshness=include_freshness,
+    )
     try:
         result = await ckan_request(
             "package_search",
@@ -481,7 +510,9 @@ class FindSchoolDataInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_find_school_data(params: FindSchoolDataInput) -> str:
+async def zurich_find_school_data(
+    topic: Annotated[str | None, FindSchoolDataInput.model_fields["topic"]] = None,
+) -> str:
     """Findet Datensätze, die für das Schulamt und die Volksschule relevant sind.
 
     Durchsucht gezielt nach Schulanlagen, Bildungsdaten, Kreisschulbehörden,
@@ -491,6 +522,7 @@ async def zurich_find_school_data(params: FindSchoolDataInput) -> str:
     Returns:
         Markdown-Liste schulrelevanter Datensätze
     """
+    params = FindSchoolDataInput(topic=topic)
     try:
         search_terms = [
             "Schule",

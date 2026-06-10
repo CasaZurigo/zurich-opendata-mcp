@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..app import mcp
@@ -77,7 +79,11 @@ class GeoFeaturesInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_geo_features(params: GeoFeaturesInput) -> str:
+async def zurich_geo_features(
+    layer_id: Annotated[GeoLayerId, GeoFeaturesInput.model_fields["layer_id"]],
+    max_features: Annotated[int, GeoFeaturesInput.model_fields["max_features"]] = 50,
+    property_filter: Annotated[str | None, GeoFeaturesInput.model_fields["property_filter"]] = None,
+) -> str:
     """Ruft Geodaten aus dem WFS-Geoportal der Stadt Zürich als GeoJSON ab.
 
     Liefert geografische Features (Punkte, Polygone) mit Eigenschaften
@@ -87,6 +93,7 @@ async def zurich_geo_features(params: GeoFeaturesInput) -> str:
     Returns:
         GeoJSON FeatureCollection mit Features und ihren Eigenschaften
     """
+    params = GeoFeaturesInput(layer_id=layer_id, max_features=max_features, property_filter=property_filter)
     try:
         # `layer_id` is a `Literal` matching GEOPORTAL_LAYERS.keys() (enforced
         # by Pydantic at validation time + a drift test in test_server.py),

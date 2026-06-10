@@ -9,6 +9,8 @@ and flip ``idempotentHint`` back to ``False``.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..app import mcp
@@ -43,7 +45,9 @@ class SparqlQueryInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def zurich_sparql(params: SparqlQueryInput) -> str:
+async def zurich_sparql(
+    query: Annotated[str, SparqlQueryInput.model_fields["query"]],
+) -> str:
     """⚠️ NICHT PRODUKTIV – Der Linked-Data-Endpunkt (ld.stadt-zuerich.ch) ist
     noch nicht mit echten Daten befüllt. Abfragen liefern leere oder
     unvollständige Ergebnisse. Bitte stattdessen zurich_search_datasets oder

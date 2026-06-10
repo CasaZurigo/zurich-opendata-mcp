@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..app import mcp
@@ -109,7 +111,13 @@ class ParliamentSearchInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_parliament_search(params: ParliamentSearchInput) -> str:
+async def zurich_parliament_search(
+    query: Annotated[str, ParliamentSearchInput.model_fields["query"]],
+    year_from: Annotated[int | None, ParliamentSearchInput.model_fields["year_from"]] = None,
+    year_to: Annotated[int | None, ParliamentSearchInput.model_fields["year_to"]] = None,
+    department: Annotated[str | None, ParliamentSearchInput.model_fields["department"]] = None,
+    max_results: Annotated[int, ParliamentSearchInput.model_fields["max_results"]] = 10,
+) -> str:
     """Durchsucht die Geschäfte des Gemeinderats der Stadt Zürich (Paris API).
 
     Findet Interpellationen, Motionen, Postulate, Anfragen und weitere
@@ -119,6 +127,13 @@ async def zurich_parliament_search(params: ParliamentSearchInput) -> str:
     Returns:
         Markdown-Liste der gefundenen Gemeinderatsgeschäfte
     """
+    params = ParliamentSearchInput(
+        query=query,
+        year_from=year_from,
+        year_to=year_to,
+        department=department,
+        max_results=max_results,
+    )
     try:
         cql = _build_geschaeft_cql(
             query=params.query,
@@ -221,7 +236,13 @@ class ParliamentMembersInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def zurich_parliament_members(params: ParliamentMembersInput) -> str:
+async def zurich_parliament_members(
+    name: Annotated[str | None, ParliamentMembersInput.model_fields["name"]] = None,
+    party: Annotated[str | None, ParliamentMembersInput.model_fields["party"]] = None,
+    commission: Annotated[str | None, ParliamentMembersInput.model_fields["commission"]] = None,
+    active_only: Annotated[bool, ParliamentMembersInput.model_fields["active_only"]] = True,
+    max_results: Annotated[int, ParliamentMembersInput.model_fields["max_results"]] = 20,
+) -> str:
     """Sucht Mitglieder des Gemeinderats der Stadt Zürich.
 
     Ermöglicht die Suche nach Name, Partei und Kommissionszugehörigkeit.
@@ -230,6 +251,13 @@ async def zurich_parliament_members(params: ParliamentMembersInput) -> str:
     Returns:
         Markdown-Liste der gefundenen Ratsmitglieder
     """
+    params = ParliamentMembersInput(
+        name=name,
+        party=party,
+        commission=commission,
+        active_only=active_only,
+        max_results=max_results,
+    )
     try:
         ns = PARIS_NAMESPACES
 

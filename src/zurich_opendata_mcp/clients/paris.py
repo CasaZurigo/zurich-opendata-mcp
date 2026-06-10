@@ -33,6 +33,14 @@ async def paris_search(
     async with get_client() as client:
         response = await client.get(url, params=params, follow_redirects=True)
         response.raise_for_status()
+        # Paris signals query errors (e.g. an unknown CQL field) as an HTML
+        # error page with HTTP 200, which would otherwise surface as a cryptic
+        # XML ParseError. Detect it and raise the upstream message instead.
+        if "xml" not in response.headers.get("content-type", "").lower():
+            raise ValueError(
+                f"Paris API returned a non-XML response for index '{index}': "
+                f"{response.text.strip()[:200]}"
+            )
         return ET.fromstring(response.content)
 
 

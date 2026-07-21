@@ -3,38 +3,63 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated
 
+from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..app import mcp
 from ..config import (
+    AIR_QUALITY_DATASET_SLUG,
     AIR_QUALITY_RESOURCE_ID,
+    AIR_QUALITY_RESOURCE_PREFIX,
+    METEO_DATASET_SLUG,
     METEO_RESOURCE_ID,
+    METEO_RESOURCE_PREFIX,
     PARKENDD_URL,
     PEDESTRIAN_RESOURCE_ID,
+    UGZ_STATIONS,
     VBZ_HALTESTELLEN_ID,
     VBZ_LINIE_ID,
     VBZ_REISENDE_ID,
     WATER_MYTHENQUAI_ID,
     WATER_TIEFENBRUNNEN_ID,
+    AirParameter,
+    MeteoParameter,
+    OutputFormat,
+    UgzStation,
     WaterStation,
 )
+from ..formatters import FORMAT_FIELD_DESC as _FORMAT_FIELD_DESC
 from ..formatters import handle_api_error, md_cell
+from ..formatters import json_out as _json_out
 from ..http_client import ckan_request, http_get_json
+from ..resolver import resolve_yearly_resource
+
+
+def _strip_ids(records: list[dict]) -> list[dict]:
+    """Drop the CKAN-internal `_id` column from records for JSON output."""
+    return [{k: v for k, v in r.items() if k != "_id"} for r in records]
+
+
+class ParkingLiveInput(BaseModel):
+    """Input für Echtzeit-Parkplatzdaten."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    format: OutputFormat = Field(default="markdown", description=_FORMAT_FIELD_DESC)
 
 
 @mcp.tool(
     name="zurich_parking_live",
-    annotations={
-        "title": "Echtzeit-Parkplatzdaten Zürich",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": True,
-    },
+    annotations=ToolAnnotations(
+        title="Echtzeit-Parkplatzdaten Zürich",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
 )
-async def zurich_parking_live() -> str:
+async def zurich_parking_live(params: ParkingLiveInput | None = None) -> str:
     """Ruft Echtzeit-Parkplatz-Belegungsdaten für die Stadt Zürich ab.
 
     Liefert aktuelle Daten von 36 Parkhäusern und Parkplätzen:
@@ -42,12 +67,19 @@ async def zurich_parking_live() -> str:
     Datenquelle: ParkenDD API.
 
     Returns:
-        Markdown-Tabelle mit aktuellen Parkhaus-Belegungen
+        Markdown-Tabelle mit aktuellen Parkhaus-Belegungen (oder JSON
+        bei format='json')
     """
+    params = params or ParkingLiveInput()
     try:
         data = await http_get_json(PARKENDD_URL)
         lots = data.get("lots", [])
         last_updated = data.get("last_updated", "unbekannt")
+
+        if params.format == "json":
+            return _json_out(
+                {"last_updated": last_updated, "count": len(lots), "lots": lots}
+            )
 
         lines = [
             "## Parkplatzbelegung Zürich",
@@ -77,56 +109,56 @@ class WeatherLiveInput(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
-    station: str | None = Field(
+    station: UgzStation | None = Field(
         default=None,
         description=(
-            "Messstation filtern (z.B. 'Zch_Stampfenbachstrasse', "
-            "'Zch_Schimmelstrasse', 'Zch_Rosengartenstrasse'). "
+            "Messstation filtern. Verfügbar: " + ", ".join(UGZ_STATIONS) + ". "
             "Leer = alle Stationen."
         ),
     )
-    parameter: str | None = Field(
+    parameter: MeteoParameter | None = Field(
         default=None,
         description=(
             "Messparameter filtern: 'T' (Temperatur °C), 'Hr' (Luftfeuchte %), "
-            "'p' (Luftdruck hPa), 'RainDur' (Regendauer min). Leer = alle."
+            "'p' (Luftdruck hPa), 'RainDur' (Regendauer min), "
+            "'StrGlo' (Globalstrahlung W/m²), 'WD' (Windrichtung °), "
+            "'WVs'/'WVv' (Windgeschwindigkeit m/s). Leer = alle."
         ),
     )
     limit: int = Field(default=20, description="Anzahl Messwerte (max. 100)", ge=1, le=100)
+    format: OutputFormat = Field(default="markdown", description=_FORMAT_FIELD_DESC)
 
 
 @mcp.tool(
     name="zurich_weather_live",
-    annotations={
-        "title": "Aktuelle Wetterdaten Zürich",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": True,
-    },
+    annotations=ToolAnnotations(
+        title="Aktuelle Wetterdaten Zürich",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
 )
-async def zurich_weather_live(
-    station: Annotated[str | None, WeatherLiveInput.model_fields["station"]] = None,
-    parameter: Annotated[str | None, WeatherLiveInput.model_fields["parameter"]] = None,
-    limit: Annotated[int, WeatherLiveInput.model_fields["limit"]] = 20,
-) -> str:
+async def zurich_weather_live(params: WeatherLiveInput) -> str:
     """Liefert stündlich aktualisierte Wetterdaten der UGZ-Messstationen Zürich.
 
     Datenquelle: Umwelt- und Gesundheitsschutz Stadt Zürich (UGZ).
     Messstationen: Stampfenbachstrasse, Schimmelstrasse, Rosengartenstrasse,
-    Heubeeribüel, Kaserne.
+    Heubeeribüel.
 
     Returns:
         Aktuelle Temperatur, Luftfeuchte, Luftdruck, Regendauer je Station
     """
-    params = WeatherLiveInput(station=station, parameter=parameter, limit=limit)
     try:
+        resource_id = await resolve_yearly_resource(
+            METEO_DATASET_SLUG, METEO_RESOURCE_PREFIX, METEO_RESOURCE_ID
+        )
         api_params: dict = {
-            "resource_id": METEO_RESOURCE_ID,
+            "resource_id": resource_id,
             "sort": "Datum desc",
             "limit": params.limit,
         }
-        filters = {}
+        filters: dict[str, str] = {}
         if params.station:
             filters["Standort"] = params.station
         if params.parameter:
@@ -139,6 +171,15 @@ async def zurich_weather_live(
 
         if not records:
             return "Keine Wetterdaten gefunden. Standort/Parameter prüfen."
+
+        if params.format == "json":
+            return _json_out(
+                {
+                    "total": result.get("total", 0),
+                    "count": len(records),
+                    "measurements": _strip_ids(records),
+                }
+            )
 
         lines = ["## 🌤️ Aktuelle Wetterdaten Zürich\n"]
         lines.append(f"*Quelle: UGZ Messnetz – {result.get('total', '?')} Messwerte total*\n")
@@ -163,9 +204,22 @@ async def zurich_weather_live(
                     "Hr": "💧 Luftfeuchte",
                     "p": "📊 Luftdruck",
                     "RainDur": "🌧️ Regendauer",
+                    "StrGlo": "☀️ Globalstrahlung",
+                    "WD": "🧭 Windrichtung",
+                    "WVs": "💨 Windgeschwindigkeit (Skalar)",
+                    "WVv": "💨 Windgeschwindigkeit (Vektor)",
                 }
                 display = param_names.get(param, param)
-                unit = {"T": "°C", "Hr": "%", "p": "hPa", "RainDur": "min"}.get(param, "")
+                unit = {
+                    "T": "°C",
+                    "Hr": "%",
+                    "p": "hPa",
+                    "RainDur": "min",
+                    "StrGlo": "W/m²",
+                    "WD": "°",
+                    "WVs": "m/s",
+                    "WVv": "m/s",
+                }.get(param, "")
                 status_str = f" ⚠️ {status}" if status and status != "provisorisch" else ""
 
                 lines.append(f"- **{station}** – {display}: **{value} {unit}**{status_str}")
@@ -184,55 +238,52 @@ class AirQualityInput(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
-    station: str | None = Field(
+    station: UgzStation | None = Field(
         default=None,
         description=(
-            "Messstation: 'Zch_Stampfenbachstrasse', 'Zch_Schimmelstrasse', "
-            "'Zch_Rosengartenstrasse', 'Zch_Heubeeribüel', 'Zch_Kaserne'. "
-            "Leer = alle."
+            "Messstation filtern. Verfügbar: " + ", ".join(UGZ_STATIONS) + ". Leer = alle."
         ),
     )
-    parameter: str | None = Field(
+    parameter: AirParameter | None = Field(
         default=None,
         description=(
             "Schadstoff: 'NO2' (Stickstoffdioxid), 'O3' (Ozon), "
-            "'PM10' (Feinstaub), 'PM2.5', 'NOx', 'SO2', 'CO'. Leer = alle."
+            "'PM10' (Feinstaub), 'PM2.5', 'NO', 'NOx'. Leer = alle."
         ),
     )
     limit: int = Field(default=30, description="Anzahl Messwerte (max. 100)", ge=1, le=100)
+    format: OutputFormat = Field(default="markdown", description=_FORMAT_FIELD_DESC)
 
 
 @mcp.tool(
     name="zurich_air_quality",
-    annotations={
-        "title": "Luftqualität Zürich (Echtzeit)",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": True,
-    },
+    annotations=ToolAnnotations(
+        title="Luftqualität Zürich (Echtzeit)",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
 )
-async def zurich_air_quality(
-    station: Annotated[str | None, AirQualityInput.model_fields["station"]] = None,
-    parameter: Annotated[str | None, AirQualityInput.model_fields["parameter"]] = None,
-    limit: Annotated[int, AirQualityInput.model_fields["limit"]] = 30,
-) -> str:
+async def zurich_air_quality(params: AirQualityInput) -> str:
     """Liefert stündlich aktualisierte Luftqualitätsmessungen aus Zürich.
 
     Datenquelle: Umwelt- und Gesundheitsschutz Stadt Zürich (UGZ).
-    Parameter: NO2, O3, PM10, PM2.5, NOx, SO2, CO u.a.
+    Parameter: NO, NO2, NOx, O3, PM10, PM2.5.
 
     Returns:
         Aktuelle Schadstoffwerte je Station mit Einheiten
     """
-    params = AirQualityInput(station=station, parameter=parameter, limit=limit)
     try:
+        resource_id = await resolve_yearly_resource(
+            AIR_QUALITY_DATASET_SLUG, AIR_QUALITY_RESOURCE_PREFIX, AIR_QUALITY_RESOURCE_ID
+        )
         api_params: dict = {
-            "resource_id": AIR_QUALITY_RESOURCE_ID,
+            "resource_id": resource_id,
             "sort": "Datum desc",
             "limit": params.limit,
         }
-        filters = {}
+        filters: dict[str, str] = {}
         if params.station:
             filters["Standort"] = params.station
         if params.parameter:
@@ -245,6 +296,15 @@ async def zurich_air_quality(
 
         if not records:
             return "Keine Luftqualitätsdaten gefunden."
+
+        if params.format == "json":
+            return _json_out(
+                {
+                    "total": result.get("total", 0),
+                    "count": len(records),
+                    "measurements": _strip_ids(records),
+                }
+            )
 
         lines = ["## 🌬️ Luftqualität Zürich\n"]
         lines.append(f"*Quelle: UGZ Messnetz – {result.get('total', '?')} Messwerte total*\n")
@@ -296,22 +356,20 @@ class WaterWeatherInput(BaseModel):
         description="Messstation: 'tiefenbrunnen' oder 'mythenquai'",
     )
     limit: int = Field(default=6, description="Anzahl Messwerte (max. 50)", ge=1, le=50)
+    format: OutputFormat = Field(default="markdown", description=_FORMAT_FIELD_DESC)
 
 
 @mcp.tool(
     name="zurich_water_weather",
-    annotations={
-        "title": "See-/Wasserwetter Zürich",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": True,
-    },
+    annotations=ToolAnnotations(
+        title="See-/Wasserwetter Zürich",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
 )
-async def zurich_water_weather(
-    station: Annotated[WaterStation, WaterWeatherInput.model_fields["station"]] = "tiefenbrunnen",
-    limit: Annotated[int, WaterWeatherInput.model_fields["limit"]] = 6,
-) -> str:
+async def zurich_water_weather(params: WaterWeatherInput) -> str:
     """Liefert Echtzeit-Wetterdaten der Wasserschutzpolizei Zürich.
 
     Stationen am Zürichsee: Tiefenbrunnen und Mythenquai.
@@ -321,7 +379,6 @@ async def zurich_water_weather(
     Returns:
         Aktuelle See-Messwerte mit Wasser- und Lufttemperatur, Wind, Pegel
     """
-    params = WaterWeatherInput(station=station, limit=limit)
     try:
         resource_id = WATER_TIEFENBRUNNEN_ID if params.station == "tiefenbrunnen" else WATER_MYTHENQUAI_ID
         station_name = "Tiefenbrunnen" if params.station == "tiefenbrunnen" else "Mythenquai"
@@ -338,6 +395,15 @@ async def zurich_water_weather(
 
         if not records:
             return f"Keine Daten für Station {station_name} gefunden."
+
+        if params.format == "json":
+            return _json_out(
+                {
+                    "station": station_name,
+                    "count": len(records),
+                    "measurements": _strip_ids(records),
+                }
+            )
 
         lines = [f"## 🌊 Zürichsee Wetterstation {station_name}\n"]
         lines.append("*Wasserschutzpolizei Zürich – alle 10 Min. aktualisiert*\n")
@@ -379,21 +445,20 @@ class PedestrianInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     limit: int = Field(default=24, description="Anzahl Stundenwerte (max. 168)", ge=1, le=168)
+    format: OutputFormat = Field(default="markdown", description=_FORMAT_FIELD_DESC)
 
 
 @mcp.tool(
     name="zurich_pedestrian_traffic",
-    annotations={
-        "title": "Passantenfrequenzen Bahnhofstrasse",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": True,
-    },
+    annotations=ToolAnnotations(
+        title="Passantenfrequenzen Bahnhofstrasse",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
 )
-async def zurich_pedestrian_traffic(
-    limit: Annotated[int, PedestrianInput.model_fields["limit"]] = 24,
-) -> str:
+async def zurich_pedestrian_traffic(params: PedestrianInput) -> str:
     """Liefert stündliche Passantenfrequenzen an der Zürcher Bahnhofstrasse.
 
     Datenquelle: hystreet.com Sensoren an 3 Standorten (Nord, Mitte, Süd).
@@ -402,7 +467,6 @@ async def zurich_pedestrian_traffic(
     Returns:
         Stundenwerte der Passantenfrequenz (neueste zuerst)
     """
-    params = PedestrianInput(limit=limit)
     try:
         result = await ckan_request(
             "datastore_search",
@@ -416,6 +480,15 @@ async def zurich_pedestrian_traffic(
 
         if not records:
             return "Keine Passantenfrequenz-Daten gefunden."
+
+        if params.format == "json":
+            return _json_out(
+                {
+                    "total": result.get("total", 0),
+                    "count": len(records),
+                    "records": _strip_ids(records),
+                }
+            )
 
         lines = ["## 🚶 Passantenfrequenzen Bahnhofstrasse Zürich\n"]
         lines.append("*hystreet.com Sensoren – stündlich aktualisiert*\n")
@@ -447,12 +520,16 @@ class VBZPassengersInput(BaseModel):
 
     line: str | None = Field(
         default=None,
-        description=("Liniennummer filtern, z.B. '4' (Tram 4), '33' (Bus 33). Leer = alle Linien."),
+        description=(
+            "Liniennummer filtern (exakter Linienname), z.B. '4' (Tram 4), '33' (Bus 33). "
+            "Leer = alle Linien."
+        ),
     )
     stop: str | None = Field(
         default=None,
         description=(
-            "Haltestelle filtern (Name oder Teilname), z.B. 'Paradeplatz', 'Central', 'Bellevue'. Leer = alle."
+            "Haltestelle filtern (Name oder Teilname), z.B. 'Paradeplatz', 'Central', "
+            "'Bellevue'. Wird über das Haltestellenverzeichnis aufgelöst. Leer = alle."
         ),
     )
     query: str | None = Field(
@@ -460,24 +537,20 @@ class VBZPassengersInput(BaseModel):
         description="Volltextsuche über alle Felder",
     )
     limit: int = Field(default=20, description="Anzahl Ergebnisse (max. 100)", ge=1, le=100)
+    format: OutputFormat = Field(default="markdown", description=_FORMAT_FIELD_DESC)
 
 
 @mcp.tool(
     name="zurich_vbz_passengers",
-    annotations={
-        "title": "VBZ Fahrgastzahlen",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": True,
-    },
+    annotations=ToolAnnotations(
+        title="VBZ Fahrgastzahlen",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
 )
-async def zurich_vbz_passengers(
-    line: Annotated[str | None, VBZPassengersInput.model_fields["line"]] = None,
-    stop: Annotated[str | None, VBZPassengersInput.model_fields["stop"]] = None,
-    query: Annotated[str | None, VBZPassengersInput.model_fields["query"]] = None,
-    limit: Annotated[int, VBZPassengersInput.model_fields["limit"]] = 20,
-) -> str:
+async def zurich_vbz_passengers(params: VBZPassengersInput) -> str:
     """Fragt Fahrgastzahlen der Verkehrsbetriebe Zürich (VBZ) ab.
 
     Jährlich aktualisierte Ein-/Aussteiger-Zahlen pro Linie und Haltestelle.
@@ -486,12 +559,37 @@ async def zurich_vbz_passengers(
     Returns:
         Fahrgastzahlen mit Linien- und Haltestellendetails
     """
-    params = VBZPassengersInput(line=line, stop=stop, query=query, limit=limit)
     try:
         api_params: dict = {
             "resource_id": VBZ_REISENDE_ID,
             "limit": params.limit,
         }
+
+        filters: dict = {}
+        if params.line:
+            filters["Linienname"] = params.line
+        stop_names: list[str] = []
+        if params.stop:
+            # The REISENDE table only carries Haltestellen_Id; resolve the
+            # human-readable stop name via the HALTESTELLEN directory first.
+            hst = await ckan_request(
+                "datastore_search",
+                {
+                    "resource_id": VBZ_HALTESTELLEN_ID,
+                    "q": params.stop,
+                    "limit": 50,
+                },
+            )
+            hst_records = hst.get("records", [])
+            if not hst_records:
+                return (
+                    f"Keine VBZ-Haltestelle gefunden für '{params.stop}'. "
+                    "Namen oder Teilnamen prüfen, z.B. 'Paradeplatz'."
+                )
+            filters["Haltestellen_Id"] = [r["Haltestellen_Id"] for r in hst_records]
+            stop_names = [r.get("Haltestellenlangname", "?") for r in hst_records]
+        if filters:
+            api_params["filters"] = json.dumps(filters)
         if params.query:
             api_params["q"] = params.query
 
@@ -504,8 +602,27 @@ async def zurich_vbz_passengers(
 
         field_names = [f["id"] for f in fields if f["id"] != "_id"]
 
+        if params.format == "json":
+            payload: dict = {
+                "total": result.get("total", 0),
+                "count": len(records),
+                "fields": field_names,
+                "records": _strip_ids(records),
+            }
+            if params.line:
+                payload["line"] = params.line
+            if stop_names:
+                payload["haltestellen"] = stop_names
+            return _json_out(payload)
+
         lines = ["## 🚊 VBZ Fahrgastzahlen\n"]
         lines.append(f"*Verkehrsbetriebe Zürich – {result.get('total', '?')} Einträge*\n")
+        if params.line:
+            lines.append(f"**Linie**: {params.line}\n")
+        if stop_names:
+            shown = ", ".join(stop_names[:5])
+            more = f" (+{len(stop_names) - 5} weitere)" if len(stop_names) > 5 else ""
+            lines.append(f"**Haltestelle(n)**: {shown}{more}\n")
         lines.append(f"**Felder**: {', '.join(field_names)}\n")
 
         # Render data

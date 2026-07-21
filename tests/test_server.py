@@ -6,12 +6,29 @@ Run all tests:           PYTHONPATH=src pytest tests/ -m live
 Run only non-live (CI):  PYTHONPATH=src pytest tests/ -m "not live"
 """
 
+import httpx
 import pytest
+import respx
 
 import zurich_opendata_mcp.server as server_module
+from zurich_opendata_mcp.config import CKAN_API_URL
 from zurich_opendata_mcp.server import (
+    AirQualityInput,
+    AnalyzeDatasetInput,
+    FindSchoolDataInput,
+    GeoFeaturesInput,
     GetDatasetInput,
+    ListGroupInput,
+    ParliamentMembersInput,
+    ParliamentSearchInput,
+    PedestrianInput,
     SearchDatasetsInput,
+    SparqlQueryInput,
+    TagSearchInput,
+    TourismSearchInput,
+    VBZPassengersInput,
+    WaterWeatherInput,
+    WeatherLiveInput,
     zurich_air_quality,
     zurich_analyze_datasets,
     zurich_catalog_stats,
@@ -47,32 +64,38 @@ def test_server_module_exposes_mcp_instance():
 
 @pytest.mark.live
 async def test_search_datasets():
-    result = await zurich_search_datasets(query="Schule", rows=3)
-    assert "Datensätze" in result
-    assert "Schul" in result
+    result = await zurich_search_datasets(SearchDatasetsInput(query="Schule", rows=3))
+    markdown = result.content[0].text
+    assert "Datensätze" in markdown
+    assert "Schul" in markdown
+    # Structured output exposes dataset IDs for chaining.
+    assert result.structuredContent["total"] >= 1
+    assert all(ds["id"] for ds in result.structuredContent["datasets"])
 
 
 @pytest.mark.live
 async def test_get_dataset():
-    result = await zurich_get_dataset(dataset_id="ssd_schulferien")
-    assert "Ferien" in result or "Schulferien" in result
+    result = await zurich_get_dataset(GetDatasetInput(dataset_id="ssd_schulferien"))
+    markdown = result.content[0].text
+    assert "Ferien" in markdown or "Schulferien" in markdown
+    assert result.structuredContent["dataset"]["id"] == "ssd_schulferien"
 
 
 @pytest.mark.live
 async def test_list_categories_all():
-    result = await zurich_list_categories()
+    result = await zurich_list_categories(ListGroupInput())
     assert "Bildung" in result
 
 
 @pytest.mark.live
 async def test_list_categories_bildung():
-    result = await zurich_list_categories(group_id="bildung")
+    result = await zurich_list_categories(ListGroupInput(group_id="bildung"))
     assert "Bildung" in result
 
 
 @pytest.mark.live
 async def test_list_tags():
-    result = await zurich_list_tags(query="schul")
+    result = await zurich_list_tags(TagSearchInput(query="schul"))
     assert "schul" in result.lower()
 
 
@@ -87,35 +110,35 @@ async def test_parking_live():
 
 @pytest.mark.live
 async def test_weather_live():
-    result = await zurich_weather_live(parameter="T", limit=5)
+    result = await zurich_weather_live(WeatherLiveInput(parameter="T", limit=5))
     assert "°C" in result
     assert "Fehler" not in result
 
 
 @pytest.mark.live
 async def test_air_quality():
-    result = await zurich_air_quality(limit=10)
+    result = await zurich_air_quality(AirQualityInput(limit=10))
     assert "Luftqualität" in result
     assert "Fehler" not in result
 
 
 @pytest.mark.live
 async def test_water_weather():
-    result = await zurich_water_weather(station="tiefenbrunnen", limit=2)
+    result = await zurich_water_weather(WaterWeatherInput(station="tiefenbrunnen", limit=2))
     assert "Wassertemperatur" in result
     assert "Fehler" not in result
 
 
 @pytest.mark.live
 async def test_pedestrian_traffic():
-    result = await zurich_pedestrian_traffic(limit=5)
+    result = await zurich_pedestrian_traffic(PedestrianInput(limit=5))
     assert "Passanten" in result or "Bahnhofstrasse" in result
     assert "Fehler" not in result
 
 
 @pytest.mark.live
 async def test_vbz_passengers():
-    result = await zurich_vbz_passengers(limit=5)
+    result = await zurich_vbz_passengers(VBZPassengersInput(limit=5))
     assert "VBZ" in result
     assert "Fehler" not in result
 
@@ -132,7 +155,7 @@ async def test_geo_layers():
 
 @pytest.mark.live
 async def test_geo_features():
-    result = await zurich_geo_features(layer_id="schulanlagen", max_features=5)
+    result = await zurich_geo_features(GeoFeaturesInput(layer_id="schulanlagen", max_features=5))
     assert "Feature" in result or "Schulanlage" in result or "Koordinaten" in result
 
 
@@ -141,14 +164,13 @@ async def test_geo_features():
 
 @pytest.mark.live
 async def test_parliament_search():
-    result = await zurich_parliament_search(query="Schule", max_results=5)
-    assert "Fehler" not in result
+    result = await zurich_parliament_search(ParliamentSearchInput(query="Schule", max_results=5))
     assert "Schul" in result or "GR Nr" in result or "Treffer" in result
 
 
 @pytest.mark.live
 async def test_parliament_members():
-    result = await zurich_parliament_members(party="SP", max_results=5)
+    result = await zurich_parliament_members(ParliamentMembersInput(party="SP", max_results=5))
     # "Gemeinderat" appears in the German error string too, so it cannot be an
     # accepted marker — assert the call did not error and returned real members.
     assert "Fehler" not in result
@@ -160,13 +182,13 @@ async def test_parliament_members():
 
 @pytest.mark.live
 async def test_tourism():
-    result = await zurich_tourism(category="restaurants", language="de")
+    result = await zurich_tourism(TourismSearchInput(category="restaurants", language="de"))
     assert "Zürich" in result or "Restaurant" in result or "Tourismus" in result
 
 
 @pytest.mark.live
 async def test_sparql():
-    result = await zurich_sparql(query="SELECT ?s WHERE { ?s ?p ?o } LIMIT 1")
+    result = await zurich_sparql(SparqlQueryInput(query="SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"))
     assert "nicht produktiv" in result
 
 
@@ -175,8 +197,11 @@ async def test_sparql():
 
 @pytest.mark.live
 async def test_analyze_datasets():
-    result = await zurich_analyze_datasets(query="Verkehr", max_datasets=3, include_structure=True)
-    assert "Analyse" in result
+    result = await zurich_analyze_datasets(
+        AnalyzeDatasetInput(query="Verkehr", max_datasets=3, include_structure=True)
+    )
+    assert "Analyse" in result.content[0].text
+    assert result.structuredContent["query"] == "Verkehr"
 
 
 @pytest.mark.live
@@ -187,7 +212,7 @@ async def test_catalog_stats():
 
 @pytest.mark.live
 async def test_find_school_data():
-    result = await zurich_find_school_data()
+    result = await zurich_find_school_data(FindSchoolDataInput())
     assert "Schulamt" in result or "Schul" in result
 
 
@@ -245,6 +270,17 @@ def test_sql_escape_doubles_single_quotes():
     assert _sql_escape("a\\'b") == "a\\\\''b"
 
 
+def test_sql_escape_neutralises_like_wildcards():
+    """Audit rerun §2.3: %, _ and the '!' ESCAPE character itself are escaped
+    so user input matches literally inside the ILIKE pattern."""
+    from zurich_opendata_mcp.tools.strb import _sql_escape
+
+    assert _sql_escape("100%") == "100!%"
+    assert _sql_escape("a_b") == "a!_b"
+    assert _sql_escape("wow!") == "wow!!"
+    assert _sql_escape("100%_!") == "100!%!_!!"
+
+
 def test_strb_where_clause_neutralises_quote_injection():
     """The classic 'close-the-string' payload must end up inside the literal,
     not break out of it. The doubled quote ('') is a single literal apostrophe
@@ -259,8 +295,8 @@ def test_strb_where_clause_neutralises_quote_injection():
     # Exactly one ILIKE comparison — no extra clauses leaked into the WHERE.
     assert where.count(" ILIKE ") == 1
     assert " AND " not in where
-    # Every single quote from the payload is doubled.
-    assert where == "\"Titel\" ILIKE '%x%'' OR 1=1 OR ''%%'"
+    # Every single quote from the payload is doubled, wildcards escaped.
+    assert where == "\"Titel\" ILIKE '%x!%'' OR 1=1 OR ''!%%' ESCAPE '!'"
 
 
 def test_strb_where_clause_neutralises_departement_injection():
@@ -273,8 +309,19 @@ def test_strb_where_clause_neutralises_departement_injection():
     # Payload sits inside the literal with the quote doubled.
     assert where == (
         "\"Federfuhrendes Departement\" ILIKE "
-        "'%SSD'' UNION SELECT 1,2,3 --%'"
+        "'%SSD'' UNION SELECT 1,2,3 --%' ESCAPE '!'"
     )
+
+
+def test_strb_where_clause_escapes_ilike_wildcards():
+    """A literal % or _ in the search term must not act as a wildcard
+    (audit rerun §2.3): with ESCAPE '!', !% and !_ match the literal
+    characters. CKAN's SQL endpoint rejects a backslash ESCAPE clause
+    with 409, hence '!' as the escape character."""
+    from zurich_opendata_mcp.tools.strb import _strb_where_clause
+
+    where = _strb_where_clause(query="100%_Zuschuss")
+    assert where == "\"Titel\" ILIKE '%100!%!_Zuschuss%' ESCAPE '!'"
 
 
 def test_strb_where_clause_dates_pass_through_unescaped():
@@ -358,9 +405,11 @@ def test_user_agent_version_matches_package():
 
 
 async def test_sparql_returns_disabled_notice_without_calling_endpoint():
-    from zurich_opendata_mcp.tools.sparql import zurich_sparql
+    from zurich_opendata_mcp.tools.sparql import SparqlQueryInput, zurich_sparql
 
-    result = await zurich_sparql(query="SELECT * WHERE { ?s ?p ?o } LIMIT 1")
+    result = await zurich_sparql(
+        SparqlQueryInput(query="SELECT * WHERE { ?s ?p ?o } LIMIT 1")
+    )
     assert "nicht produktiv" in result
     # The disabled notice should always cite the alternatives.
     assert "zurich_search_datasets" in result
@@ -727,6 +776,7 @@ async def test_analyze_datasets_does_not_call_package_show():
     datastore_search calls now run concurrently via asyncio.gather."""
     import zurich_opendata_mcp.http_client as http_client_module
     from zurich_opendata_mcp.tools.catalog import (
+        AnalyzeDatasetInput,
         zurich_analyze_datasets,
     )
 
@@ -784,7 +834,9 @@ async def test_analyze_datasets_does_not_call_package_show():
     import zurich_opendata_mcp.tools.catalog as catalog_module
     catalog_module.ckan_request = fake_ckan
     try:
-        result = await zurich_analyze_datasets(query="x", max_datasets=2, include_structure=True)
+        result = await zurich_analyze_datasets(
+            AnalyzeDatasetInput(query="x", max_datasets=2, include_structure=True)
+        )
     finally:
         http_client_module.ckan_request = original
         catalog_module.ckan_request = original
@@ -794,6 +846,197 @@ async def test_analyze_datasets_does_not_call_package_show():
     assert actions.count("package_search") == 1
     # Only the datastore-active resource (res-1) triggers a datastore_search.
     assert actions.count("datastore_search") == 1
-    assert "Dataset 1" in result
-    assert "Dataset 2" in result
-    assert "DataStore-Einträge" in result  # field info rendered for ds-1
+
+    # Markdown content block.
+    markdown = result.content[0].text
+    assert "Dataset 1" in markdown
+    assert "Dataset 2" in markdown
+    assert "DataStore-Einträge" in markdown  # field info rendered for ds-1
+
+    # Structured content carries machine-readable IDs and field info.
+    structured = result.structuredContent
+    assert structured["total"] == 2
+    assert structured["analyzed"] == 2
+    ds1, ds2 = structured["datasets"]
+    assert ds1["id"] == "ds-1"
+    assert ds1["resources"][0]["id"] == "res-1"
+    assert ds1["datastore_records"] == 100
+    assert [f["id"] for f in ds1["fields"]] == ["Jahr"]  # _id is filtered out
+    # ds-2 has no datastore-active resource, so no field info was fetched.
+    assert ds2["datastore_records"] is None
+    assert ds2["fields"] is None
+
+
+# ─── Structured output: dual Markdown + JSON (catalog tools) ──────────────────
+
+
+def _ckan_ok(result):
+    return httpx.Response(200, json={"success": True, "result": result})
+
+
+@respx.mock
+async def test_search_datasets_returns_markdown_and_structured():
+    respx.get(f"{CKAN_API_URL}/package_search").mock(
+        return_value=_ckan_ok(
+            {
+                "count": 3,
+                "results": [
+                    {
+                        "name": "geo_schulanlagen",
+                        "title": "Schulanlagen",
+                        "author": "Schulamt",
+                        "license_title": "CC0",
+                        "num_resources": 1,
+                        "metadata_modified": "2026-01-15T10:00:00",
+                        "resources": [
+                            {
+                                "id": "res-abc",
+                                "name": "GeoJSON",
+                                "format": "GeoJSON",
+                                "datastore_active": True,
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+
+    result = await zurich_search_datasets(SearchDatasetsInput(query="Schule", rows=1))
+
+    # Markdown fallback for humans.
+    markdown = result.content[0].text
+    assert "## Suchergebnis" in markdown
+    assert "`geo_schulanlagen`" in markdown
+
+    # Structured content for machine chaining.
+    s = result.structuredContent
+    assert s["total"] == 3
+    assert s["count"] == 1
+    assert s["next_offset"] == 1  # 3 total > offset 0 + 1 shown
+    ds = s["datasets"][0]
+    assert ds["id"] == "geo_schulanlagen"
+    assert ds["resources"][0]["id"] == "res-abc"
+    assert ds["resources"][0]["datastore_active"] is True
+    assert result.isError is False
+
+
+@respx.mock
+async def test_search_datasets_empty_is_not_an_error():
+    respx.get(f"{CKAN_API_URL}/package_search").mock(
+        return_value=_ckan_ok({"count": 0, "results": []})
+    )
+
+    result = await zurich_search_datasets(SearchDatasetsInput(query="zzz", rows=5))
+
+    assert "Keine Datensätze" in result.content[0].text
+    assert result.structuredContent["total"] == 0
+    assert result.structuredContent["datasets"] == []
+    assert result.structuredContent["error"] is None
+    assert result.isError is False
+
+
+@respx.mock
+async def test_get_dataset_structured_and_extras():
+    respx.get(f"{CKAN_API_URL}/package_show").mock(
+        return_value=_ckan_ok(
+            {
+                "name": "ssd_schulferien",
+                "title": "Schulferien",
+                "resources": [
+                    {"id": "r1", "name": "CSV", "format": "CSV", "url": "http://x/c.csv"}
+                ],
+                "extras": [
+                    {"key": "dateLastUpdated", "value": "2026-01-01"},
+                    {"key": "harvest_object_id", "value": "should-be-skipped"},
+                ],
+            }
+        )
+    )
+
+    result = await zurich_get_dataset(GetDatasetInput(dataset_id="ssd_schulferien"))
+
+    s = result.structuredContent
+    assert s["dataset"]["id"] == "ssd_schulferien"
+    assert s["dataset"]["resources"][0]["id"] == "r1"
+    # harvest_* extras are filtered out of the structured payload.
+    assert "dateLastUpdated" in s["extras"]
+    assert "harvest_object_id" not in s["extras"]
+
+
+@respx.mock
+async def test_search_datasets_error_path_is_schema_valid():
+    respx.get(f"{CKAN_API_URL}/package_search").mock(
+        return_value=httpx.Response(500, json={"error": "boom"})
+    )
+
+    result = await zurich_search_datasets(SearchDatasetsInput(query="x"))
+
+    assert result.isError is True
+    assert "Fehler" in result.content[0].text
+    # Even on failure the structured payload validates against SearchResult.
+    assert result.structuredContent["error"]
+    assert result.structuredContent["datasets"] == []
+
+
+async def test_catalog_tools_advertise_output_schema():
+    """The converted tools must expose an output schema so clients know the
+    structured shape, and a round-trip through the tool manager must yield
+    both a content block and validated structuredContent."""
+    from zurich_opendata_mcp.app import mcp
+
+    tools = {t.name: t for t in mcp._tool_manager.list_tools()}
+    for name in ("zurich_search_datasets", "zurich_get_dataset", "zurich_analyze_datasets"):
+        schema = tools[name].output_schema
+        assert schema is not None, f"{name} has no output schema"
+        assert "datasets" in schema.get("properties", {}) or "dataset" in schema.get(
+            "properties", {}
+        )
+
+    with respx.mock:
+        respx.get(f"{CKAN_API_URL}/package_search").mock(
+            return_value=_ckan_ok(
+                {
+                    "count": 1,
+                    "results": [{"name": "ds-x", "title": "X", "resources": []}],
+                }
+            )
+        )
+        out = await mcp._tool_manager.call_tool(
+            "zurich_search_datasets", {"params": {"query": "x"}}, convert_result=True
+        )
+
+    # convert_result validated structuredContent against the output model.
+    assert out.structuredContent["datasets"][0]["id"] == "ds-x"
+    assert out.content[0].text.startswith("## Suchergebnis")
+
+
+# ─── Doc-count drift guard (F-12) ────────────────────────────────────────────
+
+
+def test_registered_tool_count_matches_docs():
+    """README/SECURITY advertise "23 Tools (+3 deprecated aliases)" and
+    5 resources. This guard fails when the tool surface changes, so the
+    docs get updated in the same PR instead of drifting."""
+    from zurich_opendata_mcp.app import mcp
+
+    tools = {t.name for t in mcp._tool_manager.list_tools()}
+    aliases = {
+        "search_stadtratsbeschluesse",
+        "get_beschluesse_by_departement",
+        "get_stadtratsbeschluss_detail",
+    }
+    # zurich_sparql is opt-in (F-6); exclude it in case a flag test left it
+    # registered in this process.
+    primary = tools - aliases - {"zurich_sparql"}
+
+    assert len(primary) == 23, sorted(primary)
+    assert aliases <= tools
+
+
+async def test_registered_resource_count_matches_docs():
+    from zurich_opendata_mcp.app import mcp
+
+    resources = await mcp.list_resources()
+    templates = await mcp.list_resource_templates()
+    assert len(resources) + len(templates) == 5

@@ -2,27 +2,34 @@
 
 from __future__ import annotations
 
-from typing import Annotated
-
+from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..app import mcp
 from ..clients.wfs import wfs_get_features
-from ..config import GEOPORTAL_LAYERS, GeoLayerId
-from ..formatters import handle_api_error
+from ..config import GEOPORTAL_LAYERS, GeoLayerId, OutputFormat
+from ..formatters import FORMAT_FIELD_DESC, handle_api_error, json_out
+
+
+class GeoLayersInput(BaseModel):
+    """Input für die Layer-Liste."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    format: OutputFormat = Field(default="markdown", description=FORMAT_FIELD_DESC)
 
 
 @mcp.tool(
     name="zurich_geo_layers",
-    annotations={
-        "title": "Verfügbare Geodaten-Layer",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
+    annotations=ToolAnnotations(
+        title="Verfügbare Geodaten-Layer",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
 )
-async def zurich_geo_layers() -> str:
+async def zurich_geo_layers(params: GeoLayersInput | None = None) -> str:
     """Listet alle verfügbaren WFS-Layer des Geoportals der Stadt Zürich auf.
 
     Zeigt Layer-ID, WFS-Service-Name, Typename und Beschreibung für jeden
@@ -30,8 +37,26 @@ async def zurich_geo_layers() -> str:
     verwendet werden.
 
     Returns:
-        Markdown-formatierte Liste aller Geodaten-Layer
+        Markdown-formatierte Liste aller Geodaten-Layer (oder JSON bei
+        format='json')
     """
+    params = params or GeoLayersInput()
+    if params.format == "json":
+        return json_out(
+            {
+                "count": len(GEOPORTAL_LAYERS),
+                "layers": [
+                    {
+                        "layer_id": layer_id,
+                        "description": desc,
+                        "service": service,
+                        "typename": typename,
+                    }
+                    for layer_id, (service, typename, desc) in sorted(GEOPORTAL_LAYERS.items())
+                ],
+            }
+        )
+
     lines = [
         "## Verfügbare Geoportal-Layer (WFS)",
         f"**Anzahl**: {len(GEOPORTAL_LAYERS)}\n",
@@ -67,23 +92,23 @@ class GeoFeaturesInput(BaseModel):
             "oder \"name LIKE '%Wasser%'\". Feldnamen hängen vom Layer ab."
         ),
     )
+    format: OutputFormat = Field(
+        default="markdown",
+        description=FORMAT_FIELD_DESC + " Bei 'json' wird die rohe GeoJSON-FeatureCollection zurückgegeben.",
+    )
 
 
 @mcp.tool(
     name="zurich_geo_features",
-    annotations={
-        "title": "Geodaten abrufen (GeoJSON)",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=ToolAnnotations(
+        title="Geodaten abrufen (GeoJSON)",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
 )
-async def zurich_geo_features(
-    layer_id: Annotated[GeoLayerId, GeoFeaturesInput.model_fields["layer_id"]],
-    max_features: Annotated[int, GeoFeaturesInput.model_fields["max_features"]] = 50,
-    property_filter: Annotated[str | None, GeoFeaturesInput.model_fields["property_filter"]] = None,
-) -> str:
+async def zurich_geo_features(params: GeoFeaturesInput) -> str:
     """Ruft Geodaten aus dem WFS-Geoportal der Stadt Zürich als GeoJSON ab.
 
     Liefert geografische Features (Punkte, Polygone) mit Eigenschaften
@@ -93,7 +118,6 @@ async def zurich_geo_features(
     Returns:
         GeoJSON FeatureCollection mit Features und ihren Eigenschaften
     """
-    params = GeoFeaturesInput(layer_id=layer_id, max_features=max_features, property_filter=property_filter)
     try:
         # `layer_id` is a `Literal` matching GEOPORTAL_LAYERS.keys() (enforced
         # by Pydantic at validation time + a drift test in test_server.py),
@@ -106,6 +130,11 @@ async def zurich_geo_features(
             max_features=params.max_features,
             cql_filter=params.property_filter,
         )
+
+        if params.format == "json":
+            # Raw GeoJSON FeatureCollection — standard format, pipeable into
+            # any GIS tooling; size is bounded by max_features.
+            return json_out(geojson)
 
         features = geojson.get("features", [])
         total = len(features)

@@ -2,7 +2,7 @@
 
 # 🏙️ Zurich Open Data MCP Server
 
-![Version](https://img.shields.io/badge/version-0.3.0-blue)
+[![PyPI](https://img.shields.io/pypi/v/zurich-opendata-mcp)](https://pypi.org/project/zurich-opendata-mcp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-purple)](https://modelcontextprotocol.io/)
@@ -13,7 +13,7 @@
 
 An MCP (Model Context Protocol) server providing AI-powered access to **Open Data from the City of Zurich, Switzerland**.
 
-> Enables Claude, ChatGPT, and other MCP-compatible AI assistants to directly query 900+ datasets, geodata, parliamentary proceedings, council resolutions, tourism data, linked data, and real-time environmental and mobility information from the City of Zurich. **24 Tools, 5 Resources, 6 APIs.**
+> Enables Claude, ChatGPT, and other MCP-compatible AI assistants to directly query 900+ datasets, geodata, parliamentary proceedings, council resolutions, tourism data, linked data, and real-time environmental and mobility information from the City of Zurich. **23 Tools (+3 deprecated aliases), 5 Resources, 6 APIs.**
 
 ### Demo
 
@@ -30,7 +30,7 @@ An MCP (Model Context Protocol) server providing AI-powered access to **Open Dat
 - **`zurich_list_tags`** – Tag-based thematic search
 
 ### Real-Time Environmental Data
-- **`zurich_weather_live`** – 🌤️ Current weather (temperature, humidity, pressure, rain) from 5 UGZ stations
+- **`zurich_weather_live`** – 🌤️ Current weather (temperature, humidity, pressure, rain) from 4 UGZ stations
 - **`zurich_air_quality`** – 🌬️ Live air quality (NO₂, O₃, PM10, PM2.5) with WHO thresholds
 - **`zurich_water_weather`** – 🌊 Lake Zurich data (water temperature, level, wind) every 10 min
 
@@ -51,12 +51,14 @@ An MCP (Model Context Protocol) server providing AI-powered access to **Open Dat
 - **`zurich_tourism`** – 🏨 Attractions, restaurants, hotels, events (Schema.org data, 4 languages)
 
 ### Linked Data (SPARQL)
-- **`zurich_sparql`** – 📊 SPARQL queries on the statistical linked data endpoint *(currently disabled — endpoint not productive yet)*
+- **`zurich_sparql`** – 📊 SPARQL queries on the statistical linked data endpoint *(endpoint not productive yet — the tool is **not registered by default**; opt in with the environment variable `ZURICH_OPENDATA_ENABLE_SPARQL=1`)*
 
 ### Stadtratsbeschlüsse (Council Resolutions)
-- **`search_stadtratsbeschluesse`** – 📜 Full-text search of public council resolutions (title, department, date range)
-- **`get_beschluesse_by_departement`** – 📜 List all resolutions of a department (e.g. `SSD`, `FD`, `PRD`)
-- **`get_stadtratsbeschluss_detail`** – 📜 Single resolution by `NNNN/YYYY` number
+- **`zurich_strb_search`** – 📜 Full-text search of public council resolutions (title, department, date range)
+- **`zurich_strb_by_department`** – 📜 List all resolutions of a department (e.g. `SSD`, `FD`, `PRD`)
+- **`zurich_strb_detail`** – 📜 Single resolution by `NNNN/YYYY` number
+
+*(The former names `search_stadtratsbeschluesse`, `get_beschluesse_by_departement` and `get_stadtratsbeschluss_detail` remain available as deprecated aliases until the next major release.)*
 
 ### Analysis Tools
 - **`zurich_analyze_datasets`** – Comprehensive analysis: relevance, recency, data structure
@@ -166,13 +168,12 @@ Once configured, you can ask Claude:
 - *"Which council members belong to the SP party?"* → `zurich_parliament_members`
 
 ### Council Resolutions (Stadtratsbeschlüsse)
-- *"Find council resolutions about Volksschule from 2025"* → `search_stadtratsbeschluesse`
-- *"List all SSD resolutions in 2025"* → `get_beschluesse_by_departement`
-- *"Show council resolution 1203/2025"* → `get_stadtratsbeschluss_detail`
+- *"Find council resolutions about Volksschule from 2025"* → `zurich_strb_search`
+- *"List all SSD resolutions in 2025"* → `zurich_strb_by_department`
+- *"Show council resolution 1203/2025"* → `zurich_strb_detail`
 
-### Tourism & Statistics
+### Tourism
 - *"What restaurants does Zurich Tourism recommend?"* → `zurich_tourism`
-- *"How has Zurich's population evolved?"* → `zurich_sparql`
 
 ## 🔗 Data Sources
 
@@ -240,14 +241,14 @@ zurich-opendata-mcp/
 │   ├── server.py            # Console entry + back-compat re-exports
 │   ├── config.py            # Endpoints, layer maps, resource IDs
 │   ├── http_client.py       # Shared httpx client + CKAN wrapper
-│   ├── formatters.py        # Markdown + error formatting
+│   ├── formatters.py        # CKAN→model mapping + Markdown rendering
+│   ├── models.py            # Pydantic structured-output models
 │   ├── clients/             # API clients: paris, sparql, tourism, wfs
 │   └── tools/               # @mcp.tool implementations:
 │                            #   catalog, datastore, geo, parliament,
 │                            #   realtime, sparql, strb, tourism,
 │                            #   resources (zurich:// URIs)
-├── tests/
-│   └── test_server.py       # Pydantic + integration tests (live-marked)
+├── tests/                   # respx round-trip, unit and live-marked tests
 ├── audits/                  # Code-audit reports
 ├── .github/workflows/       # ci.yml + publish.yml (Trusted Publisher)
 ├── pyproject.toml
@@ -280,8 +281,8 @@ ruff check src/ tests/
 
 - **Read-only:** All tools perform HTTP GET requests only — no data is written, modified, or deleted.
 - **No personal data:** The APIs return open civic datasets (parking occupancy, weather readings, parliamentary proceedings). No personally identifiable information (PII) is processed or stored by this server.
-- **Rate limits:** CKAN Solr search and ParkenDD are public APIs without documented rate limits; use `rows` and `limit` parameters conservatively. The server enforces a 30s timeout per request.
-- **Data freshness:** Real-time tools (parking, weather, air quality) reflect the upstream source at query time. No caching is performed by this server.
+- **Rate limits:** CKAN Solr search and ParkenDD are public APIs without documented rate limits; use `rows` and `limit` parameters conservatively. The server enforces a 30s timeout per request; transient upstream errors (connect failures, HTTP 502/503/504) are retried once with a short backoff.
+- **Data freshness:** Real-time tools (parking, weather, air quality) reflect the upstream source at query time. Measurement data is never cached; only the lookup of the current per-year UGZ resource ID (weather/air quality) is cached in-process for 24h.
 - **Terms of service:** Data is subject to the ToS of each source — [data.stadt-zuerich.ch](https://data.stadt-zuerich.ch), [ParkenDD](https://github.com/offenesdresden/ParkAPI), [gemeinderat-zuerich.ch](https://www.gemeinderat-zuerich.ch). All City of Zurich data is published under CC0 (Open by Default since 2021).
 - **No guarantees:** This server is a community project, not affiliated with the City of Zurich or any of the API providers. Availability depends on upstream APIs.
 
@@ -308,7 +309,7 @@ Hayal Oezkan · [malkreide](https://github.com/malkreide)
 
 ---
 
-*Powered by [Model Context Protocol](https://modelcontextprotocol.io/) • 6 APIs • 24 Tools • 5 Resources*
+*Powered by [Model Context Protocol](https://modelcontextprotocol.io/) • 6 APIs • 23 Tools • 5 Resources*
 
 <!-- mcp-name: io.github.malkreide/zurich-opendata-mcp -->
 

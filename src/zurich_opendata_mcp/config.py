@@ -17,7 +17,7 @@ REQUEST_TIMEOUT = 30.0
 
 try:
     _PACKAGE_VERSION = version("zurich-opendata-mcp")
-except PackageNotFoundError:
+except PackageNotFoundError:  # pragma: no cover - only when running from a non-installed tree
     _PACKAGE_VERSION = "0.0.0+local"
 
 USER_AGENT = (
@@ -89,7 +89,14 @@ ZT_CATEGORIES = {
 }
 
 # --- Resource IDs for realtime DataStore sources ---
+# The two UGZ datasets publish one resource per calendar year, so their IDs
+# are resolved at runtime via resolver.resolve_yearly_resource(). The pinned
+# IDs below are only the fallback for when CKAN itself is unreachable.
+METEO_DATASET_SLUG = "ugz_meteodaten_stundenmittelwerte"
+METEO_RESOURCE_PREFIX = "ugz_ogd_meteo_h1_"
 METEO_RESOURCE_ID = "f9aa1373-404f-443b-b623-03ff02d2d0b7"  # ugz_ogd_meteo_h1_2026
+AIR_QUALITY_DATASET_SLUG = "ugz_luftschadstoffmessung_stundenwerte"
+AIR_QUALITY_RESOURCE_PREFIX = "ugz_ogd_air_h1_"
 AIR_QUALITY_RESOURCE_ID = "90410203-4b4f-4a65-9015-1fca2792e04d"  # ugz_ogd_air_h1_2026
 WATER_TIEFENBRUNNEN_ID = "f86b3581-6fbc-4337-ab1a-b6ead9d15daf"
 WATER_MYTHENQUAI_ID = "61e26c94-c521-473f-b7bf-bb0d73f21e9f"
@@ -97,6 +104,19 @@ PEDESTRIAN_RESOURCE_ID = "ec1fc740-8e54-4116-aab7-3394575b4666"  # hystreet
 VBZ_REISENDE_ID = "38b0c1e5-1f4e-444d-975c-61a462aa8ca6"
 VBZ_LINIE_ID = "463f92e0-5b20-44b3-b27f-59499e331e8d"
 VBZ_HALTESTELLEN_ID = "948b6347-8988-4705-9b08-45f0208a15da"
+
+# UGZ measurement network (shared by the meteo and air-quality datasets).
+# Values verified against SELECT DISTINCT on the live current-year resources;
+# a live-marked drift test in tests/test_realtime.py alarms when the
+# measurement network or parameter set changes. Keep the lists sorted.
+UGZ_STATIONS = [
+    "Zch_Heubeeribüel",
+    "Zch_Rosengartenstrasse",
+    "Zch_Schimmelstrasse",
+    "Zch_Stampfenbachstrasse",
+]
+METEO_PARAMETERS = ["Hr", "RainDur", "StrGlo", "T", "WD", "WVs", "WVv", "p"]
+AIR_PARAMETERS = ["NO", "NO2", "NOx", "O3", "PM10", "PM2.5"]
 
 # Stadtratsbeschlüsse (STRB)
 STRB_RESOURCE_ID = "35c97bec-f8de-4521-814e-704dc98f71a2"
@@ -156,6 +176,15 @@ GeoLayerId = Literal[
     "velopruefstrecken",
     "familienberatung",
 ]
+
+UgzStation = Literal[
+    "Zch_Heubeeribüel",
+    "Zch_Rosengartenstrasse",
+    "Zch_Schimmelstrasse",
+    "Zch_Stampfenbachstrasse",
+]
+MeteoParameter = Literal["Hr", "RainDur", "StrGlo", "T", "WD", "WVs", "WVv", "p"]
+AirParameter = Literal["NO", "NO2", "NOx", "O3", "PM10", "PM2.5"]
 
 WaterStation = Literal["tiefenbrunnen", "mythenquai"]
 TourismLanguage = Literal["de", "en", "fr", "it"]

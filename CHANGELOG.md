@@ -16,10 +16,224 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   defaults to `$PORT` when set, easing platform-injected port binding.
 
 ### Fixed
-- `zurich-opendata-mcp --http` no longer crashes on startup. `FastMCP.run()`
-  takes no `host`/`port` kwargs in `mcp>=1.27`, so the previous
-  `mcp.run(transport="streamable-http", port=...)` raised `TypeError`. Host
-  and port are now applied via `mcp.settings` before `run()`.
+- Parliament member search no longer emits the removed `AktivesRatsmitglied`
+  CQL predicate on the Kontakt index. The Paris API answered those queries
+  with an HTML error page under HTTP 200, which surfaced as a cryptic XML
+  `ParseError`, so every party/name member search returned nothing. Empty
+  filters now fall back to a match-all (`NameVorname any "*"`); `active_only`
+  is still honoured on the Behoerdenmandat path via `Dauer_end`. The Paris
+  client also detects non-XML responses and raises the upstream message.
+- DNS-rebinding protection is disabled explicitly on the FastMCP instance.
+  FastMCP enables it (localhost-only allowed hosts) when constructed with the
+  default `127.0.0.1` host, which rejected the `*.railway.internal` Host
+  header with HTTP 421 once `server.py` rebound to `::`.
+
+### Security
+- Bumped the `mcp[cli]` lower bound from `>=1.27.1` to `>=1.28.1` (and
+  relocked `uv.lock` to `mcp 1.28.1`) to pull in the fix for
+  CVE-2026-59950, which affected `mcp` 1.28.0. `pip-audit` now reports no
+  known vulnerabilities.
+
+## [0.5.0] - 2026-07-05
+
+This release closes all 13 findings of the July 2026 solution review
+(F-1 – F-13) across PRs #40–#54, including three production bugs the
+review surfaced (STRB detail 409, dead VBZ filters, broken `--http`).
+
+### Added
+- `format: 'markdown' | 'json'` parameter (default `markdown`) for the
+  parliament, geo and tourism tools — `zurich_parliament_search`,
+  `zurich_parliament_members`, `zurich_geo_layers`, `zurich_geo_features`
+  and `zurich_tourism`. JSON output returns normalised records with
+  `total`/`count` metadata; `zurich_geo_features` returns the raw GeoJSON
+  FeatureCollection (bounded by `max_features`). Together with the STRB
+  and realtime tools, every data-bearing tool of the server now offers a
+  machine-readable output mode. `zurich_geo_layers` gained an optional
+  input model for this; calling it without arguments behaves as before.
+  Shared helpers (`json_out`, `FORMAT_FIELD_DESC`) moved to
+  `formatters.py`. (Solution-review finding F-5, part 2 — completes F-5.)
+
+- `format: 'markdown' | 'json'` parameter (default `markdown`, matching
+  the existing STRB tools) for all six realtime tools —
+  `zurich_parking_live`, `zurich_weather_live`, `zurich_air_quality`,
+  `zurich_water_weather`, `zurich_pedestrian_traffic` and
+  `zurich_vbz_passengers`. With `format='json'` the tools return a
+  machine-readable payload (records with the CKAN-internal `_id`
+  stripped, plus `total`/`count` metadata) instead of Markdown, so
+  agents no longer have to parse Markdown tables to post-process
+  measurements. `zurich_parking_live` gained an optional input model
+  for this; calling it without arguments behaves as before.
+  (Solution-review finding F-5, part 1 — realtime family.)
+
+### Changed
+- mypy now checks the entire source surface: the per-module
+  `ignore_errors` exemption list in `pyproject.toml` (9 modules) is
+  gone. All 33 outstanding errors fixed: tool `annotations` are passed
+  as `mcp.types.ToolAnnotations` instances instead of plain dicts,
+  `ckan_request` is honestly typed `Any` (CKAN returns lists for
+  `group_list`/`tag_list`), and the weather/air filter dicts carry
+  explicit types. (Solution-review finding F-13.)
+
+- Package description in `pyproject.toml` corrected from "20 tools" to
+  the actual 23 (and mentions council resolutions instead of the
+  opt-in SPARQL tool). Accompanying docs-only fixes: PyPI-driven
+  version badge instead of the hardcoded 0.3.0 badge, tool/resource
+  counts in README and SECURITY aligned with the registered surface
+  (23 tools + 3 deprecated aliases, 5 resources), UGZ station count
+  corrected to 4, stale "v0.2.0" removed from the `server.py`
+  docstring. Two new drift-guard tests pin the registered tool and
+  resource counts so future changes must update the docs in the same
+  PR. (Solution-review finding F-12.)
+
+- `station` and `parameter` on `zurich_weather_live` and
+  `zurich_air_quality` are now `Literal`-typed against the actual UGZ
+  measurement network (verified via `SELECT DISTINCT` on the live
+  current-year resources): stations Heubeeribüel, Rosengartenstrasse,
+  Schimmelstrasse, Stampfenbachstrasse; meteo parameters incl. the
+  previously undocumented `StrGlo`/`WD`/`WVs`/`WVv`; air parameters
+  `NO`/`NO2`/`NOx`/`O3`/`PM10`/`PM2.5`. Typos and stale values that the
+  docstrings used to advertise (`Zch_Kaserne`, `SO2`, `CO` do not exist
+  in the current data) are now rejected by Pydantic with the list of
+  valid values instead of silently returning "Keine Daten gefunden".
+  A `live`-marked drift test alarms when the measurement network
+  changes. (Solution-review finding F-7.)
+
+- The three Stadtratsbeschlüsse tools now follow the `zurich_` naming
+  convention of the rest of the tool surface: `zurich_strb_search`,
+  `zurich_strb_by_department` and `zurich_strb_detail`. Behaviour,
+  input models and output are unchanged. (Solution-review finding F-4.)
+
+- Upstream calls are now retried on transient failures: connect errors
+  are retried at the httpx transport layer (`retries=2`), and the new
+  central `http_client.http_get()` helper retries once (1s backoff) when
+  an upstream answers 502/503/504. All requests are idempotent GETs, so
+  retries are safe; 4xx and plain 500 responses are never retried. All
+  API clients (CKAN, ParkenDD, Paris, WFS, Tourism) route through the
+  helper. (Solution-review finding F-3.)
+
+- All upstream HTTP calls now share one process-wide `httpx.AsyncClient`
+  (pooled TCP/TLS connections) instead of creating and closing a client
+  per request; the pool is closed on shutdown via a FastMCP lifespan hook
+  in `app.py`. `http_client.get_client()` now returns the shared client
+  and `close_client()` disposes it. The STRB tools additionally run their
+  data and COUNT(*) queries concurrently via `asyncio.gather`, halving
+  the round-trip latency of `search_stadtratsbeschluesse` and
+  `get_beschluesse_by_departement`. (Solution-review finding F-2.)
+
+### Deprecated
+- The former STRB tool names `search_stadtratsbeschluesse`,
+  `get_beschluesse_by_departement` and `get_stadtratsbeschluss_detail`
+  remain registered as fully functional aliases, marked as deprecated in
+  their descriptions/titles. They will be removed in the next major
+  release.
+
+### Removed
+- `zurich_sparql` is no longer registered by default. The Linked-Data
+  endpoint is still not productive, so the tool only ever returned a
+  static notice while occupying tool-list context in every MCP client
+  and inviting useless calls. It can be re-enabled with
+  `ZURICH_OPENDATA_ENABLE_SPARQL=1`; the implementation and the
+  `server.py` re-export remain in place. (Solution-review finding F-6.)
+
+### Fixed
+- The `--http` transport crashed on startup with a `TypeError`:
+  `FastMCP.run()` accepts no `port` keyword — the port must be set via
+  `mcp.settings.port`. The only test for this path monkeypatched
+  `mcp.run` and asserted the (invalid) kwarg, hiding the bug. Found by
+  the mypy ratchet below; verified end-to-end (server boots on the
+  configured port and answers an MCP `initialize` with HTTP 200).
+
+- The `line` and `stop` parameters of `zurich_vbz_passengers` were
+  declared but never used — only `query` ever reached the API, so
+  line/stop filtering silently returned unfiltered data. `line` now
+  filters on `Linienname`; `stop` is resolved via the VBZ
+  Haltestellen directory (the REISENDE table only carries
+  `Haltestellen_Id`) and filters on the matching ID list. Unknown stop
+  names return a clear message instead of unfiltered results; resolved
+  stop names are shown in the output (`haltestellen` in JSON). Found
+  during the F-5 review; verified live (line 7 @ Paradeplatz).
+
+- `zurich_strb_detail` (formerly `get_stadtratsbeschluss_detail`) always
+  failed against the live CKAN API with HTTP 409: the `filters` value
+  was passed as a Python dict, which httpx urlencodes as its `repr()`
+  (single quotes) instead of JSON. The filter is now serialised with
+  `json.dumps`, and the regression test asserts the wire format is
+  valid JSON. Found during the live verification of the F-4 rename.
+
+- `zurich_weather_live` and `zurich_air_quality` were pinned to the 2026
+  resource UUIDs of the per-year UGZ datasets (`ugz_ogd_meteo_h1_2026`,
+  `ugz_ogd_air_h1_2026`) and would have silently served stale data from
+  January 2027 on. The resource ID is now resolved at call time from the
+  dataset's resource list (new `resolver.resolve_yearly_resource()`):
+  prefer the current calendar year, else the newest year available, with
+  a 24h in-process cache and the pinned IDs kept as fallback when CKAN is
+  unreachable. Adds `respx` tests for the resolver and the tool wiring,
+  plus a `live`-marked stale alarm that fails if the UGZ naming scheme
+  changes. (Solution-review finding F-1.)
+
+### Security
+- Paris-API XML responses are now parsed with `defusedxml` instead of
+  stdlib `xml.etree`: DTDs, entity expansion (billion laughs) and
+  external entity references in upstream XML are rejected and surface
+  as a handled tool error. Low practical risk (fixed, trusted host over
+  HTTPS), but the hardening is one dependency away. New runtime
+  dependency `defusedxml>=0.7.1`. (Solution-review finding F-9.)
+
+- STRB search terms containing the LIKE wildcards `%`/`_` no longer act
+  as wildcards (audit rerun §2.3): `_sql_escape` now also escapes `%`,
+  `_` and the escape character itself, and the ILIKE conditions carry
+  `ESCAPE '!'`. A bare `%` used to match every resolution; it now
+  matches only titles containing a literal `%`. `!` was chosen as the
+  escape character because CKAN's SQL endpoint rejects a backslash
+  `ESCAPE` clause with HTTP 409 (verified live). (Solution-review
+  finding F-8.)
+
+## [0.4.0] - 2026-06-27
+
+### Added
+- Structured (JSON) output for the three ID-bearing catalog tools —
+  `zurich_search_datasets`, `zurich_get_dataset` and
+  `zurich_analyze_datasets`. Each now returns both a Markdown `content`
+  block (human-readable fallback) and a validated `structuredContent`
+  payload via `Annotated[CallToolResult, Model]`, so dataset and resource
+  IDs travel machine-readably into follow-up calls instead of being parsed
+  out of prose. New Pydantic output models live in
+  `zurich_opendata_mcp/models.py` (`SearchResult`, `GetDatasetResult`,
+  `AnalysisResult` and friends); MCP clients now see an `outputSchema` for
+  these tools. Added `respx`-backed tests covering the dual output, the
+  empty-result case, and the schema-valid error path.
+- `respx`-backed unit tests for `tools/parliament.py`, `tools/realtime.py`
+  and `tools/tourism.py` (audit M-7 continuation), covering the full
+  HTTP round-trip — request building, response rendering, empty results
+  and error handling — without network access.
+
+### Fixed
+- `http_get_json` dropped any query string baked into the request URL: it
+  passed an empty `dict` to httpx, which httpx interprets as "replace the
+  query params", stripping e.g. the tourism client's `?id=<category>`. As a
+  result `zurich_tourism` ignored the requested category and always hit the
+  default endpoint. Now passes `params` through as `None` so the URL's own
+  query is preserved. Regression test added.
+
+### Changed
+- Split the CKAN-dict → Markdown formatting in `formatters.py` into a
+  model layer (`to_dataset_summary`, `to_resource_info`) and a renderer
+  (`render_dataset_summary`); `format_dataset_summary` is retained as a
+  thin wrapper for the remaining Markdown-only tools.
+
+## [0.3.3] - 2026-06-07
+
+### Changed
+- Moved the MCP Registry name declaration (`io.github.malkreide/zurich-opendata-mcp`)
+  from `pyproject.toml` into `README.md` to establish MCP Registry / PyPI
+  ownership.
+
+## [0.3.2] - 2026-06-07
+
+(0.3.1 was never released — the version went straight from 0.3.0 to 0.3.2.)
+
+### Added
+- `mcp-name` metadata in `pyproject.toml` to claim MCP Registry ownership.
 
 ### Changed
 - Bumped runtime and dev-dependency floors in `pyproject.toml` (#17,
@@ -28,6 +242,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CVE-2024-4340 fix), and dev tools `pytest>=9.0.3`,
   `pytest-asyncio>=1.3.0`, `pytest-cov>=7.1.0`, `respx>=0.23.1`,
   `ruff>=0.15.12`. CI green on Python 3.11 / 3.12 / 3.13.
+- Bumped GitHub Actions versions (Dependabot actions group, 3 updates).
+- Aligned the repository docs with the portfolio structure (English README
+  primary, German README/CONTRIBUTING/SECURITY linked).
 
 ## [0.3.0] - 2026-05-11
 

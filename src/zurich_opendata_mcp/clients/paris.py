@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+# stdlib ElementTree only for the Element type; parsing goes through
+# defusedxml, which rejects DTDs/entity expansion (billion laughs) and
+# external entity references in upstream XML.
 import xml.etree.ElementTree as ET
 
+from defusedxml import ElementTree as DefusedET
+
 from ..config import PARIS_API_URL
-from ..http_client import get_client
+from ..http_client import http_get
 
 
 def cql_escape(value: str) -> str:
@@ -30,18 +35,18 @@ async def paris_search(
         "s": str(start),
         "m": str(max_results),
     }
-    async with get_client() as client:
-        response = await client.get(url, params=params, follow_redirects=True)
-        response.raise_for_status()
-        # Paris signals query errors (e.g. an unknown CQL field) as an HTML
-        # error page with HTTP 200, which would otherwise surface as a cryptic
-        # XML ParseError. Detect it and raise the upstream message instead.
-        if "xml" not in response.headers.get("content-type", "").lower():
-            raise ValueError(
-                f"Paris API returned a non-XML response for index '{index}': "
-                f"{response.text.strip()[:200]}"
-            )
-        return ET.fromstring(response.content)
+    response = await http_get(url, params=params)
+    # Paris signals query errors (e.g. an unknown CQL field) as an HTML error
+    # page with HTTP 200, which would otherwise surface as a cryptic XML
+    # ParseError. Detect it and raise the upstream message instead.
+    if "html" in response.headers.get("content-type", "").lower() or (
+        response.content.lstrip()[:64].lower().startswith((b"<!doctype html", b"<html"))
+    ):
+        raise ValueError(
+            f"Paris API returned an HTML error page for index '{index}': "
+            f"{response.text.strip()[:200]}"
+        )
+    return DefusedET.fromstring(response.content)
 
 
 def paris_extract_text(element: ET.Element | None, default: str = "") -> str:

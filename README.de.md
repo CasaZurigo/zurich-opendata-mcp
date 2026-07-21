@@ -2,7 +2,7 @@
 
 # 🏙️ Zurich Open Data MCP Server
 
-![Version](https://img.shields.io/badge/version-0.3.0-blue)
+[![PyPI](https://img.shields.io/pypi/v/zurich-opendata-mcp)](https://pypi.org/project/zurich-opendata-mcp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-purple)](https://modelcontextprotocol.io/)
@@ -13,7 +13,7 @@
 
 MCP (Model Context Protocol) Server für den KI-gestützten Zugriff auf **Open Data der Stadt Zürich**.
 
-> Ermöglicht Claude, ChatGPT und anderen MCP-kompatiblen KI-Assistenten den direkten Zugriff auf 900+ Datensätze, Geodaten, Parlamentsgeschäfte, Stadtratsbeschlüsse, Tourismusdaten, Linked Data und Echtzeit-Umwelt-/Mobilitätsinformationen der Stadt Zürich. **24 Tools, 5 Resources, 6 APIs.**
+> Ermöglicht Claude, ChatGPT und anderen MCP-kompatiblen KI-Assistenten den direkten Zugriff auf 900+ Datensätze, Geodaten, Parlamentsgeschäfte, Stadtratsbeschlüsse, Tourismusdaten, Linked Data und Echtzeit-Umwelt-/Mobilitätsinformationen der Stadt Zürich. **23 Tools (+3 deprecated Aliase), 5 Resources, 6 APIs.**
 
 ### Demo
 
@@ -30,7 +30,7 @@ MCP (Model Context Protocol) Server für den KI-gestützten Zugriff auf **Open D
 - **`zurich_list_tags`** – Tags für thematische Suche
 
 ### Echtzeit-Umweltdaten
-- **`zurich_weather_live`** – 🌤️ Aktuelle Wetterdaten (Temperatur, Feuchte, Druck, Regen) von 5 UGZ-Stationen
+- **`zurich_weather_live`** – 🌤️ Aktuelle Wetterdaten (Temperatur, Feuchte, Druck, Regen) von 4 UGZ-Stationen
 - **`zurich_air_quality`** – 🌬️ Live-Luftqualität (NO₂, O₃, PM10, PM2.5) mit WHO-Grenzwerten
 - **`zurich_water_weather`** – 🌊 Zürichsee-Daten (Wassertemperatur, Pegel, Wind) alle 10 Min.
 
@@ -51,12 +51,14 @@ MCP (Model Context Protocol) Server für den KI-gestützten Zugriff auf **Open D
 - **`zurich_tourism`** – 🏨 Attraktionen, Restaurants, Hotels, Events (Schema.org-Daten, 4 Sprachen)
 
 ### Linked Data (SPARQL)
-- **`zurich_sparql`** – 📊 SPARQL-Abfragen auf dem statistischen Linked Data Endpoint *(zurzeit deaktiviert — Endpunkt noch nicht produktiv)*
+- **`zurich_sparql`** – 📊 SPARQL-Abfragen auf dem statistischen Linked Data Endpoint *(Endpunkt noch nicht produktiv — das Tool ist **standardmässig nicht registriert**; Opt-in via Umgebungsvariable `ZURICH_OPENDATA_ENABLE_SPARQL=1`)*
 
 ### Stadtratsbeschlüsse
-- **`search_stadtratsbeschluesse`** – 📜 Volltextsuche in öffentlichen Stadtratsbeschlüssen (Titel, Departement, Datumsbereich)
-- **`get_beschluesse_by_departement`** – 📜 Alle Beschlüsse eines Departements (z.B. `SSD`, `FD`, `PRD`)
-- **`get_stadtratsbeschluss_detail`** – 📜 Einzelner Beschluss anhand der `NNNN/JJJJ`-Nummer
+- **`zurich_strb_search`** – 📜 Volltextsuche in öffentlichen Stadtratsbeschlüssen (Titel, Departement, Datumsbereich)
+- **`zurich_strb_by_department`** – 📜 Alle Beschlüsse eines Departements (z.B. `SSD`, `FD`, `PRD`)
+- **`zurich_strb_detail`** – 📜 Einzelner Beschluss anhand der `NNNN/JJJJ`-Nummer
+
+*(Die bisherigen Namen `search_stadtratsbeschluesse`, `get_beschluesse_by_departement` und `get_stadtratsbeschluss_detail` bleiben bis zur nächsten Major-Version als deprecated Aliase verfügbar.)*
 
 ### Analyse-Tools
 - **`zurich_analyze_datasets`** – Umfassende Analyse: Relevanz, Aktualität, Datenstruktur
@@ -166,13 +168,12 @@ Nach der Konfiguration kannst du in Claude fragen:
 - *«Welche Ratsmitglieder gehören der SP an?»* → `zurich_parliament_members`
 
 ### Stadtratsbeschlüsse
-- *«Such Stadtratsbeschlüsse zur Volksschule aus 2025»* → `search_stadtratsbeschluesse`
-- *«Liste alle SSD-Beschlüsse im Jahr 2025»* → `get_beschluesse_by_departement`
-- *«Zeig Stadtratsbeschluss 1203/2025»* → `get_stadtratsbeschluss_detail`
+- *«Such Stadtratsbeschlüsse zur Volksschule aus 2025»* → `zurich_strb_search`
+- *«Liste alle SSD-Beschlüsse im Jahr 2025»* → `zurich_strb_by_department`
+- *«Zeig Stadtratsbeschluss 1203/2025»* → `zurich_strb_detail`
 
-### Tourismus & Statistik
+### Tourismus
 - *«Welche Restaurants empfiehlt Zürich Tourismus?»* → `zurich_tourism`
-- *«Wie hat sich die Bevölkerung Zürichs entwickelt?»* → `zurich_sparql`
 
 ## 🔗 Datenquellen
 
@@ -246,8 +247,7 @@ zurich-opendata-mcp/
 │                            #   catalog, datastore, geo, parliament,
 │                            #   realtime, sparql, strb, tourism,
 │                            #   resources (zurich:// URIs)
-├── tests/
-│   └── test_server.py       # Pydantic- + Integrationstests (live-markiert)
+├── tests/                   # respx-Round-Trip-, Unit- und live-markierte Tests
 ├── audits/                  # Audit-Reports
 ├── .github/workflows/       # ci.yml + publish.yml (Trusted Publisher)
 ├── pyproject.toml
@@ -280,8 +280,8 @@ ruff check src/ tests/
 
 - **Nur-Lesen:** Alle Tools verwenden ausschliesslich HTTP-GET-Anfragen — es werden keine Daten geschrieben, verändert oder gelöscht.
 - **Keine Personendaten:** Die APIs liefern offene Stadtdatensätze (Parkplatzbelegung, Wettermessungen, Parlamentsgeschäfte). Keine personenbezogenen Daten werden durch diesen Server verarbeitet oder gespeichert.
-- **Rate Limits:** CKAN-Suche und ParkenDD sind öffentliche APIs ohne dokumentierte Rate Limits; `rows`- und `limit`-Parameter konservativ einsetzen. Der Server erzwingt ein 30-Sekunden-Timeout pro Anfrage.
-- **Datenaktualität:** Echtzeit-Tools (Parkplätze, Wetter, Luftqualität) spiegeln den Upstream-Stand zum Abfragezeitpunkt wider. Dieser Server nimmt kein Caching vor.
+- **Rate Limits:** CKAN-Suche und ParkenDD sind öffentliche APIs ohne dokumentierte Rate Limits; `rows`- und `limit`-Parameter konservativ einsetzen. Der Server erzwingt ein 30-Sekunden-Timeout pro Anfrage; transiente Upstream-Fehler (Verbindungsfehler, HTTP 502/503/504) werden einmal mit kurzem Backoff wiederholt.
+- **Datenaktualität:** Echtzeit-Tools (Parkplätze, Wetter, Luftqualität) spiegeln den Upstream-Stand zum Abfragezeitpunkt wider. Messdaten werden nie gecacht; einzig die Auflösung der aktuellen Jahres-Ressourcen-ID der UGZ-Datensätze (Wetter/Luftqualität) wird 24h im Prozess gecacht.
 - **Nutzungsbedingungen:** Die Daten unterliegen den Nutzungsbedingungen der jeweiligen Quelle — [data.stadt-zuerich.ch](https://data.stadt-zuerich.ch), [ParkenDD](https://github.com/offenesdresden/ParkAPI), [gemeinderat-zuerich.ch](https://www.gemeinderat-zuerich.ch). Alle Stadtdaten stehen unter CC0 (Open by Default seit 2021).
 - **Keine Gewähr:** Dieses Projekt ist eine Community-Initiative ohne Verbindung zur Stadt Zürich oder den API-Anbietern. Verfügbarkeit hängt von den vorgelagerten APIs ab.
 
@@ -308,4 +308,4 @@ Hayal Oezkan · [malkreide](https://github.com/malkreide)
 
 ---
 
-*Powered by [Model Context Protocol](https://modelcontextprotocol.io/) • 6 APIs • 24 Tools • 5 Resources*
+*Powered by [Model Context Protocol](https://modelcontextprotocol.io/) • 6 APIs • 23 Tools • 5 Resources*

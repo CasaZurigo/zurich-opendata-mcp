@@ -6,8 +6,23 @@ creating a cycle through ``server.py``.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+
+from .http_client import close_client
+
+
+@asynccontextmanager
+async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
+    """Close the shared HTTP client's connection pool on server shutdown."""
+    try:
+        yield
+    finally:
+        await close_client()
+
 
 # FastMCP auto-enables DNS-rebinding protection (allowed hosts: localhost only)
 # whenever it is constructed with the default 127.0.0.1 host, before server.py
@@ -17,7 +32,6 @@ from mcp.server.transport_security import TransportSecuritySettings
 # nothing here — disable it explicitly so any Host header is accepted.
 mcp = FastMCP(
     "zurich_opendata_mcp",
-    transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=False
-    ),
+    lifespan=_lifespan,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )

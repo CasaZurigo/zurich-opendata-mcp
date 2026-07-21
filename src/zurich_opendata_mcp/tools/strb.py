@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
-from typing import Annotated
 
+from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..app import mcp
@@ -14,10 +15,20 @@ from ..http_client import ckan_request
 
 
 def _sql_escape(value: str) -> str:
-    # PostgreSQL string literals: double the single quote and escape backslashes.
-    # Dates do not flow through here because they are regex-validated at the
-    # Pydantic layer (^\d{4}-\d{2}-\d{2}$) and therefore cannot contain quotes.
-    return value.replace("\\", "\\\\").replace("'", "''")
+    # Escapes for use inside an ILIKE '%…%' ESCAPE '!' pattern literal:
+    # backslash and single quote for the string literal, then '!' (the
+    # ESCAPE character — CKAN's SQL endpoint rejects a backslash ESCAPE
+    # clause with 409, hence '!') and finally the LIKE wildcards % and _
+    # so user input always matches literally (audit rerun §2.3). Dates do
+    # not flow through here because they are regex-validated at the
+    # Pydantic layer (^\d{4}-\d{2}-\d{2}$) and cannot contain any of these.
+    return (
+        value.replace("\\", "\\\\")
+        .replace("'", "''")
+        .replace("!", "!!")
+        .replace("%", "!%")
+        .replace("_", "!_")
+    )
 
 
 def _strb_where_clause(
@@ -29,9 +40,11 @@ def _strb_where_clause(
     """Erstellt die WHERE-Klausel für STRB-SQL-Queries."""
     conditions: list[str] = []
     if query:
-        conditions.append(f"\"Titel\" ILIKE '%{_sql_escape(query)}%'")
+        conditions.append(f"\"Titel\" ILIKE '%{_sql_escape(query)}%' ESCAPE '!'")
     if departement:
-        conditions.append(f"\"Federfuhrendes Departement\" ILIKE '%{_sql_escape(departement)}%'")
+        conditions.append(
+            f"\"Federfuhrendes Departement\" ILIKE '%{_sql_escape(departement)}%' ESCAPE '!'"
+        )
     if datum_von:
         conditions.append(f"\"Beschlussdatum\" >= '{datum_von}'")
     if datum_bis:
@@ -52,8 +65,10 @@ async def _strb_query(where: str, limit: int) -> tuple[list[dict], int]:
     sql_count = (
         f'SELECT COUNT(*) AS cnt FROM "{STRB_RESOURCE_ID}" WHERE {where}'
     )
-    result_data = await ckan_request("datastore_search_sql", {"sql": sql_data})
-    result_count = await ckan_request("datastore_search_sql", {"sql": sql_count})
+    result_data, result_count = await asyncio.gather(
+        ckan_request("datastore_search_sql", {"sql": sql_data}),
+        ckan_request("datastore_search_sql", {"sql": sql_count}),
+    )
 
     records = result_data.get("records", [])
     total = int(result_count["records"][0]["cnt"]) if result_count.get("records") else 0
@@ -135,23 +150,16 @@ class SearchSTRBInput(BaseModel):
 
 
 @mcp.tool(
-    name="search_stadtratsbeschluesse",
-    annotations={
-        "title": "Stadtratsbeschlüsse durchsuchen",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
+    name="zurich_strb_search",
+    annotations=ToolAnnotations(
+        title="Stadtratsbeschlüsse durchsuchen",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
 )
-async def search_stadtratsbeschluesse(
-    query: Annotated[str, SearchSTRBInput.model_fields["query"]],
-    departement: Annotated[str | None, SearchSTRBInput.model_fields["departement"]] = None,
-    datum_von: Annotated[str | None, SearchSTRBInput.model_fields["datum_von"]] = None,
-    datum_bis: Annotated[str | None, SearchSTRBInput.model_fields["datum_bis"]] = None,
-    limit: Annotated[int, SearchSTRBInput.model_fields["limit"]] = 20,
-    format: Annotated[OutputFormat, SearchSTRBInput.model_fields["format"]] = "markdown",
-) -> str:
+async def zurich_strb_search(params: SearchSTRBInput) -> str:
     """Durchsucht die öffentlichen Stadtratsbeschlüsse (STRB) der Stadt Zürich per Volltext.
 
     Nutzt den CKAN Datastore SQL-Endpoint für flexible ILIKE-Suche im Beschlusstitel
@@ -177,7 +185,6 @@ async def search_stadtratsbeschluesse(
             - departement: Federführendes Departement (mit Kürzel)
             - link: Direktlink auf stadt-zuerich.ch
     """
-    params = SearchSTRBInput(query=query, departement=departement, datum_von=datum_von, datum_bis=datum_bis, limit=limit, format=format)
     try:
         where = _strb_where_clause(
             query=params.query,
@@ -212,6 +219,24 @@ async def search_stadtratsbeschluesse(
 
     except Exception as e:
         return handle_api_error(e, "Stadtratsbeschlüsse-Suche")
+
+
+@mcp.tool(
+    name="search_stadtratsbeschluesse",
+    annotations=ToolAnnotations(
+        title="Stadtratsbeschlüsse durchsuchen (deprecated)",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
+)
+async def search_stadtratsbeschluesse(params: SearchSTRBInput) -> str:
+    """Deprecated: alter Name von ``zurich_strb_search`` — bitte das neue Tool
+    verwenden. Dieser Alias verhält sich identisch und wird mit der nächsten
+    Major-Version entfernt.
+    """
+    return await zurich_strb_search(params)
 
 
 class BeschluesseDepartementInput(BaseModel):
@@ -261,22 +286,16 @@ class BeschluesseDepartementInput(BaseModel):
 
 
 @mcp.tool(
-    name="get_beschluesse_by_departement",
-    annotations={
-        "title": "STRB nach Departement abrufen",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
+    name="zurich_strb_by_department",
+    annotations=ToolAnnotations(
+        title="STRB nach Departement abrufen",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
 )
-async def get_beschluesse_by_departement(
-    departement: Annotated[str, BeschluesseDepartementInput.model_fields["departement"]],
-    datum_von: Annotated[str | None, BeschluesseDepartementInput.model_fields["datum_von"]] = None,
-    datum_bis: Annotated[str | None, BeschluesseDepartementInput.model_fields["datum_bis"]] = None,
-    limit: Annotated[int, BeschluesseDepartementInput.model_fields["limit"]] = 50,
-    format: Annotated[OutputFormat, BeschluesseDepartementInput.model_fields["format"]] = "markdown",
-) -> str:
+async def zurich_strb_by_department(params: BeschluesseDepartementInput) -> str:
     """Gibt alle öffentlichen Stadtratsbeschlüsse eines Departements zurück.
 
     Ideal für institutionelle Analysen, z.B. alle Beschlüsse des Schul- und
@@ -294,7 +313,6 @@ async def get_beschluesse_by_departement(
         str: Liste aller Beschlüsse des Departements. Jeder Eintrag enthält:
             - beschlussnummer, titel, datum, departement, link
     """
-    params = BeschluesseDepartementInput(departement=departement, datum_von=datum_von, datum_bis=datum_bis, limit=limit, format=format)
     try:
         where = _strb_where_clause(
             departement=params.departement,
@@ -328,6 +346,24 @@ async def get_beschluesse_by_departement(
         return handle_api_error(e, "STRB Departement-Abfrage")
 
 
+@mcp.tool(
+    name="get_beschluesse_by_departement",
+    annotations=ToolAnnotations(
+        title="STRB nach Departement abrufen (deprecated)",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
+)
+async def get_beschluesse_by_departement(params: BeschluesseDepartementInput) -> str:
+    """Deprecated: alter Name von ``zurich_strb_by_department`` — bitte das
+    neue Tool verwenden. Dieser Alias verhält sich identisch und wird mit der
+    nächsten Major-Version entfernt.
+    """
+    return await zurich_strb_by_department(params)
+
+
 class GetSTRBDetailInput(BaseModel):
     """Input für den Abruf eines einzelnen Stadtratsbeschlusses."""
 
@@ -346,18 +382,16 @@ class GetSTRBDetailInput(BaseModel):
 
 
 @mcp.tool(
-    name="get_stadtratsbeschluss_detail",
-    annotations={
-        "title": "Einzelnen Stadtratsbeschluss abrufen",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
+    name="zurich_strb_detail",
+    annotations=ToolAnnotations(
+        title="Einzelnen Stadtratsbeschluss abrufen",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
 )
-async def get_stadtratsbeschluss_detail(
-    beschlussnummer: Annotated[str, GetSTRBDetailInput.model_fields["beschlussnummer"]],
-) -> str:
+async def zurich_strb_detail(params: GetSTRBDetailInput) -> str:
     """Gibt die Metadaten eines einzelnen Stadtratsbeschlusses anhand der Beschlussnummer zurück.
 
     Liefert Titel, Datum, Departement und den direkten Link zum vollständigen
@@ -371,13 +405,14 @@ async def get_stadtratsbeschluss_detail(
         str: Markdown-Detailansicht mit beschlussnummer, titel, datum, departement, link.
              Fehlermeldung wenn Beschluss nicht gefunden oder ausserhalb des Archivs (vor Feb 2025).
     """
-    params = GetSTRBDetailInput(beschlussnummer=beschlussnummer)
     try:
         result = await ckan_request(
             "datastore_search",
             {
                 "resource_id": STRB_RESOURCE_ID,
-                "filters": {"Beschlussnummer": params.beschlussnummer},
+                # Must be a JSON string: a raw dict would be urlencoded as its
+                # Python repr (single quotes), which CKAN rejects with a 409.
+                "filters": json.dumps({"Beschlussnummer": params.beschlussnummer}),
                 "limit": 1,
             },
         )
@@ -404,3 +439,21 @@ async def get_stadtratsbeschluss_detail(
 
     except Exception as e:
         return handle_api_error(e, f"STRB-Detail {params.beschlussnummer}")
+
+
+@mcp.tool(
+    name="get_stadtratsbeschluss_detail",
+    annotations=ToolAnnotations(
+        title="Einzelnen Stadtratsbeschluss abrufen (deprecated)",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
+)
+async def get_stadtratsbeschluss_detail(params: GetSTRBDetailInput) -> str:
+    """Deprecated: alter Name von ``zurich_strb_detail`` — bitte das neue Tool
+    verwenden. Dieser Alias verhält sich identisch und wird mit der nächsten
+    Major-Version entfernt.
+    """
+    return await zurich_strb_detail(params)

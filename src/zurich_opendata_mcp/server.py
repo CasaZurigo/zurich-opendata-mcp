@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Zurich Open Data MCP Server — v0.2.0
+Zurich Open Data MCP Server
 
 AI-nativer Zugang zu Open Data der Stadt Zürich:
   · CKAN:       data.stadt-zuerich.ch — 900+ offene Datensätze
@@ -58,6 +58,7 @@ from .tools.datastore import (  # noqa: F401
 )
 from .tools.geo import (  # noqa: F401
     GeoFeaturesInput,
+    GeoLayersInput,
     zurich_geo_features,
     zurich_geo_layers,
 )
@@ -69,6 +70,7 @@ from .tools.parliament import (  # noqa: F401
 )
 from .tools.realtime import (  # noqa: F401
     AirQualityInput,
+    ParkingLiveInput,
     PedestrianInput,
     VBZPassengersInput,
     WaterWeatherInput,
@@ -88,6 +90,9 @@ from .tools.strb import (  # noqa: F401
     get_beschluesse_by_departement,
     get_stadtratsbeschluss_detail,
     search_stadtratsbeschluesse,
+    zurich_strb_by_department,
+    zurich_strb_detail,
+    zurich_strb_search,
 )
 from .tools.tourism import TourismSearchInput, zurich_tourism  # noqa: F401
 
@@ -156,5 +161,5 @@ def main() -> None:
         mcp.run()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

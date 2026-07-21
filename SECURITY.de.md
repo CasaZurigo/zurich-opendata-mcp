@@ -16,7 +16,7 @@ ausnutzbare Schwachstellen nicht über öffentliche Issues.
 ## Statusübersicht
 
 Dies ist ein **Nur-Lese-**, **PII-freier**, **Public-Open-Data**-MCP-Server.
-Alle 24 Tools stellen ausschliesslich HTTP-GET-/SPARQL-`SELECT`-Anfragen an
+Alle 23 Tools (plus drei deprecated STRB-Aliase) stellen ausschliesslich HTTP-GET-Anfragen an
 eine feste Menge von Open-Data-Endpunkten der Stadt Zürich und ihrer Partner
 (CKAN, Geoportal WFS, Paris, Zürich Tourismus, SPARQL, ParkenDD — siehe
 `README.md`). Bereits umgesetzte Härtung:
@@ -27,9 +27,10 @@ eine feste Menge von Open-Data-Endpunkten der Stadt Zürich und ihrer Partner
 | TLS | Zertifikatsprüfung standardmässig aktiv (httpx-Default); nie deaktiviert (SEC-005) |
 | Binding | Standardmässig stdio-Transport; der optionale `--http`-Transport bindet an den SDK-Default `127.0.0.1` (SEC-016 / SDK-004) |
 | Eingaben | Strikte Pydantic-v2-Validierung (`extra="forbid"`, Whitespace-Trimming) auf jedem Tool-Eingabemodell (SEC-008/018) |
-| Injection | SQL-String-Literal-Escaping in `tools/strb.py` (H-1) und CQL-Escaping in `clients/paris.py` (H-2); Datums-/ID-Felder werden upstream per Regex validiert (SEC-018) |
+| Injection | SQL-String-Literal- und ILIKE-Wildcard-Escaping in `tools/strb.py` (H-1, Rerun §2.3) und CQL-Escaping in `clients/paris.py` (H-2); Datums-/ID-Felder werden upstream per Regex validiert (SEC-018) |
 | Tools | Jedes Tool setzt `readOnlyHint: True`; es existieren keine Schreib-, Mutations- oder Löschpfade (ARCH) |
 | Secrets | Keine erforderlich — der Server nutzt keinen API-Key und keine Credentials; nichts Geheimes wird gespeichert oder geloggt (ARCH-005/SEC-013) |
+| XML | Paris-API-Antworten werden via `defusedxml` geparst — DTDs, Entity-Expansion und externe Entities werden abgelehnt (F-9) |
 | Fehler | Upstream-Fehlerbodies werden nur nach stderr geloggt; das Modell erhält eine generische, nicht-leckende Meldung (OBS-002) |
 | Stdout | Reserviert für den JSON-RPC-Stream; sämtliches Logging auf stderr gepinnt (OBS-004) |
 | Resilienz | Ein 30s-Timeout pro Anfrage (`REQUEST_TIMEOUT`) begrenzt jeden Upstream-Aufruf (SCALE-002/003) |
@@ -64,6 +65,30 @@ Supply-Chain- und Host-seitiges Thema. Die Tool-Definitionen dieses Servers sind
 versionskontrolliert, im Repo verfasst und via PR reviewt; es gibt keine
 dynamische oder entfernte Tool-Registrierung. Server-übergreifende
 Poisoning-Erkennung bleibt eine Gateway-/Host-Verantwortung auf Portfolio-Ebene.
+
+### WFS-`property_filter` (CQL) — Durchreichung ohne Escaping
+
+**Status:** akzeptiertes Risiko (durch Design begrenzt).
+`zurich_geo_features` reicht den `property_filter`-String unescaped als
+`CQL_FILTER`-Query-Parameter an den Geoserver der Stadt Zürich weiter. Der
+Wirkungsradius ist begrenzt: Layer und Typename sind serverseitig fixiert
+(`Literal`-validiert gegen `GEOPORTAL_LAYERS`), der Geoserver ist nur lesend
+und liefert öffentliche Daten, und der Parameter kann das Anfrageziel nicht
+ändern. Ein bösartiger Filter kann höchstens einen WFS-Fehler oder ein leeres
+Ergebnis für die eigene Abfrage erzeugen. Sinnvolles Escaping würde einen
+vollständigen CQL-Parser erfordern — unverhältnismässig für dieses
+Risikoprofil. Neu bewerten, falls die WFS-Fläche je Layer mit
+nicht-öffentlichen Daten erhält.
+
+### `--http`-Transport ohne Authentifizierung
+
+**Status:** dokumentierte Deployment-Einschränkung.
+Der optionale Streamable-HTTP-Transport (`--http`) bindet an den SDK-Default
+`127.0.0.1` und ist nur für lokale Clients gedacht. Der Server implementiert
+selbst keine Authentifizierung. Wer ihn über localhost hinaus exponiert
+(Reverse Proxy, Container-Netzwerk, Tunnel), muss Authentifizierung und TLS
+auf dieser Proxy-Ebene erzwingen — den Port niemals unauthentifiziert
+weiterleiten.
 
 ## Trigger für eine Neubewertung
 

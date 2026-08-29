@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
 
@@ -55,3 +55,39 @@ jobs:
         # makes the runner pull ghcr.io/...:<sha>, which does not exist
         # ("manifest unknown", broke the v0.5.0 release run).
         uses: pypa/gh-action-pypi-publish@v1.14.1
+
+  publish-mcp:
+    name: Publish to MCP Registry
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # required for MCP Registry Trusted Publishing (OIDC)
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Sync server.json version to the release version
+        run: |
+          # On a tag run (v1.2.3) derive the version from the tag. On a manual
+          # workflow_dispatch from a branch, GITHUB_REF_NAME is the branch name
+          # (e.g. "main"), so stripping "v" would write the branch name into
+          # server.json and desync the MCP-registry version from the PyPI
+          # artifact. Fall back to the version already committed in server.json.
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(jq -r '.version' server.json)"
+          fi
+          jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' \
+            server.json > server.tmp && mv server.tmp server.json
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server to MCP Registry
+        run: ./mcp-publisher publish

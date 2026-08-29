@@ -77,6 +77,16 @@ MCP (Model Context Protocol) Server für den KI-gestützten Zugriff auf **Open D
 ### Voraussetzungen
 - Python 3.11+
 - pip oder uv
+- `mcp[cli]` 2.x — wird automatisch installiert; der Server nutzt die 2.x-API
+  (`mcp.server.mcpserver`) und läuft nicht mit `mcp` 1.x
+
+> **Version 0.6.0 oder neuer verwenden.** Release `0.5.1` deklarierte
+> `mcp[cli]>=1.28.1` ohne Obergrenze. Nachdem `mcp` 2.0.0 das Modul
+> `mcp.server.fastmcp` entfernt hatte, löste jede Neuinstallation von `0.5.1`
+> auf 2.0.0 auf und scheiterte beim Import mit `ModuleNotFoundError`. `0.6.0`
+> nutzt die 2.x-API und pinnt `>=2.0.0,<3`. Wer auf `0.5.1` festgepinnt ist,
+> sollte aktualisieren — für dieses Release existiert keine funktionierende
+> Konfiguration mehr.
 
 ### Installation
 ```bash
@@ -275,6 +285,67 @@ pytest tests/ -m live
 # Linting
 ruff check src/ tests/
 ```
+
+## 🌐 HTTP-Transport
+
+Standardmässig spricht der Server MCP über stdio. Mit `--http` wird stattdessen
+Streamable HTTP bedient:
+
+```bash
+zurich-opendata-mcp --http --port 8000              # bindet 127.0.0.1 (Default)
+zurich-opendata-mcp --http --host 0.0.0.0 --port 8000
+```
+
+| Option | Bedeutung | Default |
+|---|---|---|
+| `--http` | Streamable HTTP statt stdio | _(aus → stdio)_ |
+| `--host` | Bind-Adresse | `127.0.0.1` |
+| `--port` | Bind-Port (1–65535) | `8000` |
+| `MCP_ALLOWED_HOSTS` | Kommagetrennte Namen, unter denen dieser Server erreichbar ist, **mit Port** (z. B. `zurich.example.ch:8000`). Anfragen unter einem anderen `Host` erhalten **421**; Loopback bleibt erlaubt, damit Container-Health-Checks weiter funktionieren. | _(nicht gesetzt)_ |
+
+**Der Loopback-Default ist Absicht.** Ein Bind auf `0.0.0.0` macht den Server auf
+allen Interfaces erreichbar, für jeden mit Zugriff auf die Maschine — eine
+Authentisierung ist nicht vorgeschaltet.
+
+**Setze `MCP_ALLOWED_HOSTS`, sobald du über Loopback hinaus bindest.** Es
+schützt vor **DNS-Rebinding**: Eine Seite in deinem Netz lässt ihren eigenen
+Hostnamen auf die Adresse dieses Servers auflösen und spricht ihn dann aus dem
+Browser an. Aus Sicht des Browsers ist diese Anfrage Same-Origin, keine
+Origin-Regel greift also — nur die `Host`-Prüfung tut es.
+
+Bleibt die Variable bei einem Nicht-Loopback-Bind ungesetzt, ist die Prüfung
+**aus** und es wird gewarnt. Das ist nur dann der richtige Default, wenn etwas
+Vorgelagertes den `Host` validiert. Geraten wird sie bewusst nicht: bei `0.0.0.0`
+ist der erreichbare Name im Prozess nicht bekannt, und ein falscher Rateversuch
+würde genau das Deployment, das er schützen soll, mit 421 auf jede Anfrage
+abweisen.
+
+## MCP-Protokollversion
+
+Dieser Server bedient **zwei Protokoll-Aeren** ueber denselben Endpunkt. Die
+erste Anfrage einer Verbindung entscheidet, welche gilt; ein spaeterer Anspruch
+aus der jeweils anderen Aera wird abgewiesen.
+
+| Aera | Revision | Wer sie erreicht |
+|---|---|---|
+| `initialize`-Handshake | `2024-11-05` … **`2025-11-25`** | Was heutige Clients sprechen. Der Server antwortet mit der angefragten Revision — oder mit der Obergrenze `2025-11-25`, wenn die Anfrage etwas Neueres verlangt. |
+| Pro-Request-Envelope | **`2026-07-28`** | Eine Anfrage mit dem `2026-07-28`-`_meta`-Envelope oeffnet eine moderne Verbindung. |
+
+Beide Revisionen sind in
+[`tests/test_protocol_version.py`](tests/test_protocol_version.py) gepinnt und
+werden gegen das installierte SDK geprueft; ein Dependabot-Bump von `mcp` kann
+also keine der beiden still verschieben. Dieser Server baut keine ASGI-App, durch die sich ein `initialize`
+schicken liesse; das Gate sichert deshalb die SDK-Konstanten statt einer
+gemessenen Antwort — die schwaechere Form, benannt statt verschwiegen.
+
+Zu beachten: `LATEST_PROTOCOL_VERSION` im SDK ist ein Alias auf die **moderne**
+Aera, nicht auf die Handshake-Aera — wer nur dagegen pinnt, laesst genau die
+Aera frei wandern, die heutige Clients tatsaechlich aushandeln.
+
+**Update-Politik.** Faellt das Gate, die Konstante nicht blind nachziehen: erst
+das Spec-Changelog zwischen den beiden Revisionen lesen, pruefen, ob sich der
+Server weiterhin richtig verhaelt, dann Konstante, diesen Abschnitt, `README.md`
+und [`CHANGELOG.md`](CHANGELOG.md) gemeinsam bewegen.
 
 ## Sicherheit & Grenzen
 

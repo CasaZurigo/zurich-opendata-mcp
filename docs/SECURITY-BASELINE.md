@@ -61,9 +61,19 @@ un-mergeable by the sole maintainer while still keeping the valuable gates
 
 ### Verify
 
-Open a throwaway PR (or inspect an open one): the three `check` jobs
-should be listed as **Required** and merging blocked until they pass; a
-direct push or force-push to `main` should be rejected.
+Open a throwaway PR (or inspect an open one): all **five** required checks
+(three `check` jobs plus both `Fresh-resolve install smoke` jobs, listed
+under "Required branch-protection rules" below) should be marked
+**Required**, and merging blocked until they pass. In API terms the PR's
+`mergeable_state` reads `blocked` while a required check is pending, and
+only reaches `clean` once every one of them has passed — `unstable` instead
+of `blocked` means a failing check is *not* gating and the ruleset is
+listing fewer checks than it should.
+
+A direct push or force-push to `main` should be rejected. Note this one can
+only be confirmed by attempting it, which writes to `main` if the rule is
+in fact absent — so verify it on a scratch commit you are willing to see
+land, or accept the ruleset's configuration as evidence.
 
 ## Required branch-protection rules on `main`
 
@@ -77,13 +87,37 @@ for the `main` branch:
   - **Dismiss stale approvals** when new commits are pushed.
   - Require **conversation resolution** before merging.
 - **Require status checks to pass before merging**, and require branches
-  to be **up to date** before merging. The required checks are the jobs
-  produced by `.github/workflows/ci.yml`:
+  to be **up to date** before merging. The required checks are, verbatim as
+  GitHub reports them (matrix jobs report one check each):
   - `check (3.11)`
   - `check (3.12)`
   - `check (3.13)`
+  - `Fresh-resolve install smoke (3.11)`
+  - `Fresh-resolve install smoke (3.13)`
 
-  Each runs `uv run ruff check`, `uv run mypy`, and `uv run pytest`.
+  `check` runs `uv run ruff check`, `uv run mypy`, `uv run pytest` and the
+  version-sync check. It is guarded to `pull_request`, because it installs via
+  `uv sync` — a resolve frozen by the committed `uv.lock`.
+
+  `Fresh-resolve install smoke` builds the wheel, installs it from a *free*
+  resolve with a cold cache, and starts it over stdio. That is the difference
+  that matters: `check` measures the lockfile, this measures what a user
+  actually gets. Release 0.5.1 shipped broken precisely because only the first
+  of those was ever gated. It also runs weekly (Mondays 06:17 UTC), since what
+  breaks it is an upstream release rather than a commit here.
+
+  Requiring the smoke job has an accepted cost: an upstream release that
+  breaks a declared dependency range turns every open PR red until the range
+  is fixed, and with "up to date before merging" also forces a re-run. That is
+  the intended behaviour — an unmergeable repo is the correct response to a
+  package that cannot be installed. Note the gate does not block its own
+  remedy: a PR that fixes the range makes the job pass on that PR.
+
+  One further job is produced but deliberately **not** required:
+
+  - `audit` — `pip-audit`; `continue-on-error: true` by design, so a fresh
+    advisory in a transitive dependency alarms without blocking unrelated
+    work. Also runs weekly, for the same reason as the smoke job.
 - **Require linear history** (no merge commits introduced by force).
 - **Do not allow bypassing the above settings** — apply the rules to
   administrators as well. No actor should be able to merge around the

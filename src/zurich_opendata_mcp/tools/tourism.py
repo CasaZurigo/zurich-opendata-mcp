@@ -61,10 +61,10 @@ class TourismSearchInput(BaseModel):
     name="zurich_tourism",
     annotations=ToolAnnotations(
         title="Zürich Tourismus Daten",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=True,
     ),
 )
 async def zurich_tourism(params: TourismSearchInput) -> str:
@@ -98,7 +98,11 @@ async def zurich_tourism(params: TourismSearchInput) -> str:
                 name = item.get("name", {}).get(lang, "") or ""
                 desc = item.get("disambiguatingDescription", {}).get(lang, "") or ""
                 categories = " ".join(item.get("category", {}).keys())
-                if search_lower in name.lower() or search_lower in desc.lower() or search_lower in categories.lower():
+                if (
+                    search_lower in name.lower()
+                    or search_lower in desc.lower()
+                    or search_lower in categories.lower()
+                ):
                     filtered.append(item)
             data = filtered
 

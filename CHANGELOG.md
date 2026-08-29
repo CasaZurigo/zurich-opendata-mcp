@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Dockerfile` and `.dockerignore` that build the console script and serve the
   MCP endpoint at `/mcp`. The image binds `::` and honours `$HOST`/`$PORT` so
   the server is reachable over Railway's private network for other services.
-- `--host` CLI flag (defaults to `$HOST` or `127.0.0.1`); `--port` now also
+- `--host` also defaults to `$HOST` when set (otherwise loopback); `--port`
   defaults to `$PORT` when set, easing platform-injected port binding.
 
 ### Fixed
@@ -23,10 +23,316 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filters now fall back to a match-all (`NameVorname any "*"`); `active_only`
   is still honoured on the Behoerdenmandat path via `Dauer_end`. The Paris
   client also detects non-XML responses and raises the upstream message.
-- DNS-rebinding protection is disabled explicitly on the FastMCP instance.
-  FastMCP enables it (localhost-only allowed hosts) when constructed with the
-  default `127.0.0.1` host, which rejected the `*.railway.internal` Host
-  header with HTTP 421 once `server.py` rebound to `::`.
+
+### Hinzugefuegt
+
+- **Frischehinweise auf den auflistenden Methoden** (SEP-2549, Spec
+  `2026-07-28`): `ttlMs` 300000, `cacheScope` `public`. Das SDK setzt beides auf
+  «sofort veraltet, nie geteilt» — wer nichts übergibt, lässt jeden Client bei
+  jeder Verbindung neu auflisten. `resources/read` und `prompts/get` bleiben
+  ohne Hinweis: das wäre eine Zusicherung über den Inhalt statt über das
+  Verzeichnis.
+
+- **Protokoll-Gate: beide Spec-Aeren gepinnt und geprueft**
+  (`tests/test_protocol_version.py`). `mcp` 2.x bedient zwei Aeren ueber
+  denselben Server — den `initialize`-Handshake, der bei `2025-11-25`
+  deckelt, und den Pro-Request-Envelope, der `2026-07-28` erreicht.
+  `LATEST_PROTOCOL_VERSION` ist ein Alias auf die **moderne** Aera; wer nur
+  dagegen pinnt, laesst genau die Aera frei wandern, die heutige Clients
+  aushandeln. Beide sind jetzt einzeln gepinnt, ein Dependabot-Bump von
+  `mcp` kann keine davon still verschieben.
+
+  Ohne gemessenen Teil: dieser Server baut keine ASGI-App, durch die sich ein
+  `initialize` schicken liesse. Das Gate haengt deshalb an den SDK-Konstanten —
+  die schwaechere Form, im Docstring benannt statt verschwiegen.
+
+  Beide READMEs beschreiben die Aeren; ein Test haelt jede Sprache einzeln
+  dagegen — im Portfolio sind EN und DE desselben Repos schon dreimal
+  auseinandergelaufen, weil nur eine Fassung nachgezogen wurde.
+
+### Sicherheit — sqlparse auf 0.6.0, Floor mitgezogen
+
+`sqlparse 0.5.5` traegt vier Advisories (CVE-2026-71491, CVE-2026-59894,
+CVE-2026-59893, CVE-2026-54284), alle behoben in `0.6.0`. Das ist keine
+Randabhaengigkeit: `tools/datastore.py` parst mit `sqlparse` das SQL, das den
+Guard aus H-1 traegt.
+
+Gehoben wurde der **Floor** in `pyproject.toml` (`>=0.5.5` -> `>=0.6.0`), nicht
+nur der Lock. `uv.lock` gilt fuer die Entwicklung hier; ein Fremdinstall loest
+aus der Spanne auf, und die soll die verwundbaren Versionen gar nicht erst
+zulassen. `uv lock` bewegte genau ein Paket.
+
+Gemessen, nicht geschlossen: Die Gates laufen gegen die installierte `0.6.0`
+gruen durch — `ruff check`, `ruff format --check`, `mypy`, `pytest`
+(263 passed, 100% Coverage) und `check_version_sync.py`. Der Fresh-Resolve-Job
+zog `sqlparse 0.6.0` schon vorher, weil die Spanne offen war; rot war allein
+`pip-audit`, das gegen den Lock misst.
+
+### Geaendert — der ruff-Pin steht an einer Stelle statt an zweien
+
+`pyproject.toml` `[dev]` pinnt `ruff==0.16.1`, `uv.lock` haelt dieselbe
+Version, und `ci.yml` ruft `uv run ruff` ohne `--with` auf.
+
+Vorher stand im `dev`-Extra `ruff>=0.15.12`, im Lock aufgeloest auf `0.15.18`,
+waehrend die CI ihre beiden ruff-Schritte per `uv run --with ruff==0.16.1`
+fuhr. Das ueberschrieb nur diese zwei Aufrufe: Wer lokal `uv run ruff check`
+fuhr, lintete mit **0.15.18** gegen ein Gate, das **0.16.1** fuhr — und die
+Abweichungen, die dabei auftauchen, hat niemand verursacht.
+
+Gemessen, nicht geschlossen: `uv run ruff --version` meldet nach der Aenderung
+`0.16.1`, `uv lock` bewegte genau ein Paket (`ruff 0.15.18 -> 0.16.1`), und
+`ruff check` / `ruff format --check` / `mypy` / `pytest` (259 passed,
+100% Coverage) laufen gruen durch.
+
+### Hinzugefuegt — die CKAN-Fixtures sind aufgezeichnet, nicht mehr ausgedacht
+
+**`scripts/record_fixtures.py`** zeichnet `group_list`, `group_show` und
+`package_search` von `data.stadt-zuerich.ch` auf und schreibt
+`tests/fixtures/*` samt `PROVENANCE.md` mit Quelle, **Aufzeichnungsdatum**,
+Auswahlregel und SHA-256 je Datei.
+
+Ohne Datum ist «aufgezeichnet» nach zwei Jahren von «ausgedacht» nicht mehr zu
+unterscheiden — die Datei sieht gleich aus.
+
+Wo gekuerzt wurde, bleiben die **Zaehlfelder auf dem echten Wert** (`count`,
+`package_count`). Eine Fixture, die stillschweigend behauptet, der Bestand sei
+kleiner, waere genau der Fehler, gegen den diese Aufzeichnung angeht.
+
+**Regel 1 ist jetzt belegt statt begruendet.** Der Server sendet `rows` an jeder
+Aufrufstelle explizit — das war schon richtig, stand aber ohne Messung da.
+Aufgezeichnet am 2026-08-07: `package_search?q=verkehr` meldet **count 102** und
+liefert ohne `rows` genau **10** Ergebnisse. Genau dieser CKAN-Default ist der
+Gruendungsfall von Regel 1 des Skills
+[`mcp-data-fidelity`](https://github.com/malkreide/mcp-data-fidelity-skill).
+`test_ckan_returns_ten_rows_when_the_parameter_is_omitted` haelt beide Zahlen
+gegeneinander. Faellt der Beleg eines Tages, weil CKAN sein Verhalten aendert,
+ist der rote Test eine Information und kein Fehlalarm: Dann gehoert die
+Begruendung in den Tools nachgefuehrt.
+
+**Kein Befund am Produktivcode.** Anders als in `zh-education-mcp`,
+`bag-health-mcp` und `register-mcp` hat das Aufzeichnen hier nichts
+Kaputtes freigelegt — die 246 Tests laufen unveraendert durch, die 100-%-Marke
+haelt. Das gehoert genauso berichtet wie ein Fund.
+
+Gegenprobe gefuehrt: Mit einer Fixture, die `returned == count` behauptet,
+faellt der Regel-1-Test; mit einer leeren Kategorienliste faellt der
+Katalog-Test.
+
+
+### Changed
+
+- **Retry policy against the source: bounded, spread, obedient (`ARCH-014`).**
+  A portfolio-wide run of the audit catalogue on 2026-08-07 read all 43 servers
+  against `ARCH-014` and this one failed on every count the check makes.
+
+  What was there: `http_get()` retried **once** on 502/503/504 after a fixed
+  `asyncio.sleep(1.0)`. Underneath it, the shared client was built with
+  `AsyncHTTPTransport(retries=2)`.
+
+  | Property | Before | Now |
+  |---|---|---|
+  | What is retried | 502/503/504 only; a 500 was called deterministic | 5xx, 429, timeouts and connection errors; 4xx except 429 fails fast |
+  | How fast | fixed 1.0s, no spread | exponential 2/4/8s, jittered into `[0.5x, 1.5x]` |
+  | `Retry-After` | not read | read (both RFC 9110 forms) and it beats our curve |
+  | The cap | none | `MAX_DELAY_SECONDS`, applied **after** the jitter |
+  | How long | one retry; no time bound at all | 25s wall-clock budget on `asyncio.timeout` |
+  | Levels retrying | **two** — this loop *and* the transport | exactly one |
+
+  Three of those are worth spelling out.
+
+  **The stacking was invisible.** `AsyncHTTPTransport(retries=2)` under a loop
+  of 2 is 3 x 2 attempts, not 3 + 2, and neither number appeared anywhere. The
+  transport is now at `retries=0` and a test asserts it, because the value is
+  one edit away from coming back and nothing else would notice.
+
+  **A fixed 1.0s wait is a retry storm.** Every client that hits the same
+  outage comes back at the same moment, and the load returns as a wave exactly
+  when the source recovers.
+
+  **`REQUEST_TIMEOUT` was never a budget.** httpx bounds each *operation*, and
+  its read timeout restarts with every chunk — a slowly trickling response
+  outlives any budget without a single read expiring. The 25s ceiling now hangs
+  off `asyncio.timeout`, and it is below the MCP SDK's 30s default so the
+  server stops working before the caller stops listening.
+
+  The policy is adopted from the `mcp-data-source-probe` reference template
+  (`reference/retry_backoff.py`) and lives in a new `retry.py`. It raises the
+  original upstream exception unwrapped; the one case with no exception to
+  re-raise — budget already spent before the first request — gets its own
+  `UpstreamUnavailableError` rather than a bare `RuntimeError`.
+
+  **Behaviour change to be aware of:** a plain 500 is now retried. The old
+  docstring called it a deterministic answer; `ARCH-014` treats all 5xx as
+  retryable, and a 500 from a gateway under load is exactly the transient case.
+
+  Counter-checks were run against all six properties — see the pull request.
+
+## [0.7.0] - 2026-07-31
+
+Minor: two new configuration surfaces, no existing behaviour changed. The
+loopback bind default is unchanged by design — `--host` has to be given for the
+server to reach the network, so upgrading cannot widen an existing deployment's
+exposure.
+
+### Added
+
+- **Configurable HTTP bind address (`--host`, default `127.0.0.1`).** The
+  Streamable-HTTP transport could not be offered beyond loopback: `main()`
+  called `mcp.run(transport="streamable-http", port=…)` with no `host=`, so
+  uvicorn always bound `127.0.0.1` and there was no flag to change it.
+  Measured before the change — `Uvicorn running on http://127.0.0.1:41778` —
+  and after, where `--host 0.0.0.0` binds `0.0.0.0`.
+
+  The default stays loopback. A server that starts listening on every
+  interface after an update would be a security regression, not a feature, so
+  reaching the network is an explicit `--host` away and nothing else changes.
+
+- **Inbound Host/Origin allow-list (`MCP_ALLOWED_HOSTS`).** Comma-separated and
+  compared verbatim, so an entry carries its port (`zurich.example.ch:8000`).
+  Anything else is answered with 421; loopback stays allowed so container
+  health checks keep working.
+
+  This is not a bonus feature but the other half of the `--host` fix. The SDK
+  derives its DNS-rebinding allow-list from the bind address:
+
+  ```python
+  if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+      transport_security = TransportSecuritySettings(...)   # loopback list
+  ```
+
+  So passing `host` through on its own would have had a silent side effect —
+  on a `0.0.0.0` bind `transport_security` stays `None` and Host validation is
+  not merely misconfigured but **entirely off**. That is a posture change
+  nobody would have decided; it is now decided explicitly, in three cases:
+
+  - `MCP_ALLOWED_HOSTS` set → that list plus loopback, protection on.
+  - loopback bind, no list → loopback only. Same protection the SDK would have
+    inferred, now stated rather than dependent on that inference.
+  - non-loopback bind, no list → off, and `main()` warns. That is the
+    gateway-fronted deployment, where whatever terminates TLS validates `Host`.
+
+  The last case is deliberately not a guess: on `0.0.0.0` the reachable name is
+  unknowable in-process, and a guessed list rejects the very deployment it is
+  meant to protect — 421 on every real request.
+
+  Follows `malkreide/bag-health-mcp#51` and `malkreide/swiss-transport-mcp#25`,
+  minus their CORS-origin folding: this server has no configurable origin list,
+  so the transport's origins are derived from the host list alone rather than
+  inventing an `MCP_CORS_ORIGINS` that nothing here reads.
+
+  22 new tests. The load-bearing one is **right hostname, wrong port** —
+  `evil.invalid` alone proves little, because a fallback loopback-only policy
+  rejects that too; only the wrong-port case tells a port-exact allow-list
+  apart from one that lets everything through. Verified end-to-end against a
+  running `0.0.0.0` instance as well: allowed name 200, foreign name 421,
+  right-name-wrong-port 421, loopback 200.
+
+- **`[tool.mcp_auditor.boot.commands]` in `pyproject.toml`.** An external
+  auditor could not start this server over HTTP automatically, because the
+  transport is chosen by CLI flag rather than by environment variable, so
+  setting an env var boots nothing. The stdio and streamable-http commands are
+  now declared; a test pins them against the console-script entry point so the
+  two cannot drift apart.
+
+## [0.6.0] - 2026-07-31
+
+**Release this because 0.5.1 on PyPI is unusable.** The two entries below were
+already on `main` but had never been published: the version in the repo, the
+git tag and PyPI all read `0.5.1`, so every version comparison reported "in
+sync" while the artifact users actually download stayed broken. Reproduced on
+2026-07-31 against the published wheel:
+
+```
+$ uv run --with 'zurich-opendata-mcp==0.5.1' python -c "import zurich_opendata_mcp.app"
+installed zurich-opendata-mcp: 0.5.1
+installed mcp               : 2.0.0
+ModuleNotFoundError: No module named 'mcp.server.fastmcp'
+```
+
+Minor, not patch. Two consumer-visible changes make this more than a bugfix:
+the install requirement moved to a new major of a dependency
+(`mcp[cli]>=1.28.1` → `>=2.0.0,<3`), so an environment holding `mcp` 1.x can no
+longer install this package — a patch release should stay installable wherever
+its predecessor was — and 2.x-aware clients now negotiate a newer protocol era
+(see below). The tool surface is unchanged, so it is not a major.
+
+### Changed
+
+- **Migrated to the `mcp` 2.x server API.** The pin moved from `>=1.28.1,<2`
+  to `>=2.0.0,<3`. The floor is hard: 2.0.0 removed `mcp.server.fastmcp` with
+  no compatibility shim, so this code cannot run on 1.x at all. `FastMCP` →
+  `MCPServer` (`mcp.server.mcpserver`).
+
+  Existing clients see no difference: the legacy `initialize` handshake still
+  caps at 2025-11-25 — measured, not inferred from a constant name; a client
+  asking for `2026-07-28` gets `2025-11-25` back. mcp 2.x does, however, serve
+  a second "modern" era over the same server (per-request envelope, the
+  client's first request picks the era) which reaches 2026-07-28. So a
+  2.x-aware client negotiates the newer revision. Not a break, but not a
+  protocol no-op either.
+
+  Two moved APIs, with different failure modes:
+
+  - `MCPServer.settings` no longer carries `host`/`port`; they are `run()`
+    kwargs. Reading raises `AttributeError`, assigning raises `ValueError`, so
+    a missed call site is loud rather than a server quietly bound to the wrong
+    address. `main()` passes the port to `run()`.
+  - `mcp_types` snake_cased its model fields (`structuredContent` →
+    `structured_content`, `isError` → `is_error`). The camelCase names survive
+    as pydantic aliases, so the old kwargs kept working and the test suite
+    stayed green — only `mypy` caught them. The wire format is unchanged
+    either way, since the aliases are what gets serialised.
+
+  `ToolManager.call_tool()` now requires a `Context`; the affected test calls
+  the public `MCPServer.call_tool()` instead of reaching into the manager.
+
+  Verified: 195 passed / 22 deselected, identical to the 1.x baseline;
+  `ruff check`, `mypy` and a fresh-venv install clean; `uv.lock` relocked
+  (`mcp` 1.28.1 → 2.0.0, adds `mcp-types`/`httpx2`, drops `pydantic-settings`
+  — not imported here).
+
+### Fixed
+
+- **Capped `mcp` at `<2`.** `mcp` 2.0.0, published 2026-07-28, removed
+  `mcp.server.fastmcp` — the module this server imports. With the previous
+  unbounded `>=1.28.1` every fresh resolve picked 2.0.0 and failed at import
+  with `ModuleNotFoundError`, in CI and for anyone running `pip install` alike.
+  Verified in both directions: 2.0.0 fails, `<2` resolves to 1.29.0 and imports
+  cleanly. Migrating to the 2.x API (`mcp.server.mcpserver`) stays a separate,
+  deliberate piece of work.
+
+### Added
+
+- **CI now installs the built wheel from a free resolve and starts it**
+  (`fresh-install` job in `ci.yml`, plus `scripts/smoke_installed.py`). This
+  closes the hole that let 0.5.1 ship broken and stay broken.
+
+  The existing `check` job runs `uv sync`, which resolves from `uv.lock`. A
+  lockfile is a *frozen* resolve: while `uv.lock` pinned `mcp` 1.28.1, CI kept
+  installing 1.28.1 and passing, no matter what the declared range allowed. A
+  user running `pip install zurich-opendata-mcp` gets a *free* resolve, took
+  `mcp` 2.0.0 the day it appeared, and hit `ModuleNotFoundError`. CI was green
+  and the artifact was dead, and neither fact contradicted the other.
+
+  The new job builds the wheel, installs it into a fresh venv with
+  `--no-cache-dir` and no lockfile, then runs a real stdio handshake against
+  the `zurich-opendata-mcp` console script and asserts the tool list is
+  non-empty. Importing alone would not have been enough here — it is the same
+  distinction that made the defect invisible, so the check exercises the thing
+  users actually run. It runs on every PR, so an upstream release that breaks
+  the declared range turns CI red on the next PR instead of on a user's
+  machine.
+
+- **`tests/test_packaging.py`** — guards the declared dependency range itself.
+  The `mcp` requirement must carry both a floor and an upper cap: the
+  unbounded `>=1.28.1` is exactly what let a resolver walk into a major
+  version that had removed the imported module. The tests also assert that
+  what the range promises and what the code imports stay the same claim —
+  `src/` must import `mcp.server.mcpserver` and must not reference
+  `mcp.server.fastmcp` — and that the installed `mcp` satisfies the declared
+  specifier, which catches the lockfile drifting out of the declared range.
+
+## [0.5.1] - 2026-07-24
 
 ### Security
 - Bumped the `mcp[cli]` lower bound from `>=1.27.1` to `>=1.28.1` (and

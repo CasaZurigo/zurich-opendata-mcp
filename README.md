@@ -77,6 +77,15 @@ An MCP (Model Context Protocol) server providing AI-powered access to **Open Dat
 ### Prerequisites
 - Python 3.11+
 - pip or uv
+- `mcp[cli]` 2.x — installed automatically; the server uses the 2.x API
+  (`mcp.server.mcpserver`) and cannot run on `mcp` 1.x
+
+> **Use 0.6.0 or newer.** Release `0.5.1` declared `mcp[cli]>=1.28.1` with no
+> upper bound. Once `mcp` 2.0.0 removed `mcp.server.fastmcp`, every fresh
+> install of `0.5.1` resolved to 2.0.0 and failed at import with
+> `ModuleNotFoundError`. `0.6.0` runs on the 2.x API and pins `>=2.0.0,<3`.
+> If you are pinned to `0.5.1`, upgrade — there is no working configuration of
+> that release left.
 
 ### Install
 ```bash
@@ -276,6 +285,66 @@ pytest tests/ -m live
 # Linting
 ruff check src/ tests/
 ```
+
+## 🌐 HTTP transport
+
+By default the server speaks MCP over stdio. `--http` serves Streamable HTTP
+instead:
+
+```bash
+zurich-opendata-mcp --http --port 8000              # binds 127.0.0.1 (default)
+zurich-opendata-mcp --http --host 0.0.0.0 --port 8000
+```
+
+| Option | Meaning | Default |
+|---|---|---|
+| `--http` | Serve Streamable HTTP instead of stdio | _(off → stdio)_ |
+| `--host` | Bind address | `127.0.0.1` |
+| `--port` | Bind port (1–65535) | `8000` |
+| `MCP_ALLOWED_HOSTS` | Comma-separated names this server is reachable under, **port included** (e.g. `zurich.example.ch:8000`). Requests under any other `Host` get **421**; loopback stays allowed so container health checks keep working. | _(unset)_ |
+
+**The loopback default is deliberate.** Binding `0.0.0.0` exposes the server on
+every interface, to everyone who can reach the machine — there is no
+authentication in front of it.
+
+**Set `MCP_ALLOWED_HOSTS` whenever you bind beyond loopback.** It guards against
+**DNS rebinding**: a page on your network resolves its own hostname to this
+server's address and then talks to it from the browser. From the browser's point
+of view that request is same-origin, so no origin rule stops it — only the
+`Host` check does.
+
+Left unset on a non-loopback bind, the check stays **off** and a warning is
+logged. That is the right default only when something in front of the server
+validates `Host`. It is deliberately not guessed: on `0.0.0.0` the reachable
+name is unknowable inside the process, and a wrong guess would answer the very
+deployment it is meant to protect with 421 on every request.
+
+## MCP Protocol Version
+
+This server speaks **two protocol eras** over the same endpoint. The client's
+first request on a connection decides which one applies; a later claim from the
+other era is refused.
+
+| Era | Revision | Who reaches it |
+|---|---|---|
+| `initialize` handshake | `2024-11-05` … **`2025-11-25`** | What today's clients speak. The server answers with the revision asked for, or with the `2025-11-25` ceiling when the request asks for something newer. |
+| Per-request envelope | **`2026-07-28`** | A request carrying the `2026-07-28` `_meta` envelope opens a modern connection. |
+
+Both revisions are pinned in
+[`tests/test_protocol_version.py`](tests/test_protocol_version.py) and asserted
+against the installed SDK, so a Dependabot bump of `mcp` cannot move either one
+silently. This server builds no ASGI app to send an `initialize` through, so
+the gate asserts the SDK constants rather than a measured response — the
+weaker form, named rather than left unsaid.
+
+Note that the SDK's `LATEST_PROTOCOL_VERSION` is an alias for the **modern**
+era, not for the handshake era — pinning against it alone would leave the era
+that current clients actually negotiate free to drift.
+
+**Update policy.** When the gate fails, do not edit the constant blindly: read
+the spec changelog between the two revisions, verify the server still behaves,
+then move the constant, this section, `README.de.md` and
+[`CHANGELOG.md`](CHANGELOG.md) together.
 
 ## Safety & Limits
 

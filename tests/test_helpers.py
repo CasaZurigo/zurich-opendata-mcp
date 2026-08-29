@@ -24,9 +24,7 @@ def test_format_dataset_summary_renders_all_optional_fields():
             "groups": [{"title": "Bildung"}],
             "tags": [{"display_name": "schule"}],
             "notes": "Eine Beschreibung",
-            "resources": [
-                {"id": "r1", "name": "CSV", "format": "CSV", "datastore_active": True}
-            ],
+            "resources": [{"id": "r1", "name": "CSV", "format": "CSV", "datastore_active": True}],
         }
     )
 
@@ -68,9 +66,7 @@ async def test_ckan_request_raises_on_unsuccessful_response():
     from zurich_opendata_mcp.http_client import ckan_request
 
     respx.get(f"{CKAN_API_URL}/package_show").mock(
-        return_value=httpx.Response(
-            200, json={"success": False, "error": {"message": "Not found"}}
-        )
+        return_value=httpx.Response(200, json={"success": False, "error": {"message": "Not found"}})
     )
 
     with pytest.raises(RuntimeError, match="Not found"):
@@ -105,16 +101,33 @@ def test_main_runs_stdio_by_default(monkeypatch):
     assert calls == [((), {})]
 
 
-def test_main_runs_http_with_port(monkeypatch):
+def test_main_runs_http_with_host_port_and_security(monkeypatch):
     import zurich_opendata_mcp.server as srv
 
+    # An inherited allow-list would change which branch the security builder
+    # takes, and with it the assertion below.
+    monkeypatch.delenv("MCP_ALLOWED_HOSTS", raising=False)
+    monkeypatch.delenv("HOST", raising=False)
+    monkeypatch.delenv("PORT", raising=False)
     calls: list[tuple] = []
     monkeypatch.setattr(srv.mcp, "run", lambda *a, **k: calls.append((a, k)))
     monkeypatch.setattr(sys, "argv", ["zurich-opendata-mcp", "--http", "--port", "9001"])
-    monkeypatch.setattr(srv.mcp.settings, "port", 8000)
 
     srv.main()
 
-    # FastMCP.run() takes no port kwarg — the port travels via settings.
-    assert calls == [((), {"transport": "streamable-http"})]
-    assert srv.mcp.settings.port == 9001
+    # mcp 2.x: MCPServer.settings carries no host/port, so the bind travels as
+    # run() kwargs instead of being assigned beforehand. Asserting the whole
+    # call keeps them in one place — dropping any of them fails here.
+    #
+    # `host` in particular: without it the server binds loopback whatever
+    # --host said, and the SDK derives its Host allow-list from the default it
+    # then sees. `transport_security` is asserted separately because it is an
+    # object, not a literal; see tests/test_transport_security.py for what it
+    # contains.
+    ((args, kwargs),) = calls
+    assert args == ()
+    assert kwargs["transport"] == "streamable-http"
+    assert kwargs["host"] == "127.0.0.1"
+    assert kwargs["port"] == 9001
+    assert set(kwargs) == {"transport", "host", "port", "transport_security"}
+    assert "127.0.0.1:9001" in kwargs["transport_security"].allowed_hosts

@@ -53,10 +53,10 @@ class ParkingLiveInput(BaseModel):
     name="zurich_parking_live",
     annotations=ToolAnnotations(
         title="Echtzeit-Parkplatzdaten Zürich",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
     ),
 )
 async def zurich_parking_live(params: ParkingLiveInput | None = None) -> str:
@@ -77,9 +77,7 @@ async def zurich_parking_live(params: ParkingLiveInput | None = None) -> str:
         last_updated = data.get("last_updated", "unbekannt")
 
         if params.format == "json":
-            return _json_out(
-                {"last_updated": last_updated, "count": len(lots), "lots": lots}
-            )
+            return _json_out({"last_updated": last_updated, "count": len(lots), "lots": lots})
 
         lines = [
             "## Parkplatzbelegung Zürich",
@@ -133,10 +131,10 @@ class WeatherLiveInput(BaseModel):
     name="zurich_weather_live",
     annotations=ToolAnnotations(
         title="Aktuelle Wetterdaten Zürich",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
     ),
 )
 async def zurich_weather_live(params: WeatherLiveInput) -> str:
@@ -259,10 +257,10 @@ class AirQualityInput(BaseModel):
     name="zurich_air_quality",
     annotations=ToolAnnotations(
         title="Luftqualität Zürich (Echtzeit)",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
     ),
 )
 async def zurich_air_quality(params: AirQualityInput) -> str:
@@ -363,10 +361,10 @@ class WaterWeatherInput(BaseModel):
     name="zurich_water_weather",
     annotations=ToolAnnotations(
         title="See-/Wasserwetter Zürich",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
     ),
 )
 async def zurich_water_weather(params: WaterWeatherInput) -> str:
@@ -380,7 +378,9 @@ async def zurich_water_weather(params: WaterWeatherInput) -> str:
         Aktuelle See-Messwerte mit Wasser- und Lufttemperatur, Wind, Pegel
     """
     try:
-        resource_id = WATER_TIEFENBRUNNEN_ID if params.station == "tiefenbrunnen" else WATER_MYTHENQUAI_ID
+        resource_id = (
+            WATER_TIEFENBRUNNEN_ID if params.station == "tiefenbrunnen" else WATER_MYTHENQUAI_ID
+        )
         station_name = "Tiefenbrunnen" if params.station == "tiefenbrunnen" else "Mythenquai"
 
         result = await ckan_request(
@@ -452,10 +452,10 @@ class PedestrianInput(BaseModel):
     name="zurich_pedestrian_traffic",
     annotations=ToolAnnotations(
         title="Passantenfrequenzen Bahnhofstrasse",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
     ),
 )
 async def zurich_pedestrian_traffic(params: PedestrianInput) -> str:
@@ -544,10 +544,10 @@ class VBZPassengersInput(BaseModel):
     name="zurich_vbz_passengers",
     annotations=ToolAnnotations(
         title="VBZ Fahrgastzahlen",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
     ),
 )
 async def zurich_vbz_passengers(params: VBZPassengersInput) -> str:

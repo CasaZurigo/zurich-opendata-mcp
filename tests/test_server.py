@@ -54,7 +54,7 @@ from zurich_opendata_mcp.server import (
 
 
 def test_server_module_exposes_mcp_instance():
-    """Importing the package and instantiating FastMCP must succeed offline."""
+    """Importing the package and instantiating MCPServer must succeed offline."""
     assert hasattr(server_module, "mcp")
     assert server_module.mcp.name
 
@@ -69,8 +69,8 @@ async def test_search_datasets():
     assert "Datensätze" in markdown
     assert "Schul" in markdown
     # Structured output exposes dataset IDs for chaining.
-    assert result.structuredContent["total"] >= 1
-    assert all(ds["id"] for ds in result.structuredContent["datasets"])
+    assert result.structured_content["total"] >= 1
+    assert all(ds["id"] for ds in result.structured_content["datasets"])
 
 
 @pytest.mark.live
@@ -78,7 +78,7 @@ async def test_get_dataset():
     result = await zurich_get_dataset(GetDatasetInput(dataset_id="ssd_schulferien"))
     markdown = result.content[0].text
     assert "Ferien" in markdown or "Schulferien" in markdown
-    assert result.structuredContent["dataset"]["id"] == "ssd_schulferien"
+    assert result.structured_content["dataset"]["id"] == "ssd_schulferien"
 
 
 @pytest.mark.live
@@ -201,7 +201,7 @@ async def test_analyze_datasets():
         AnalyzeDatasetInput(query="Verkehr", max_datasets=3, include_structure=True)
     )
     assert "Analyse" in result.content[0].text
-    assert result.structuredContent["query"] == "Verkehr"
+    assert result.structured_content["query"] == "Verkehr"
 
 
 @pytest.mark.live
@@ -308,8 +308,7 @@ def test_strb_where_clause_neutralises_departement_injection():
     assert " AND " not in where
     # Payload sits inside the literal with the quote doubled.
     assert where == (
-        "\"Federfuhrendes Departement\" ILIKE "
-        "'%SSD'' UNION SELECT 1,2,3 --%' ESCAPE '!'"
+        "\"Federfuhrendes Departement\" ILIKE '%SSD'' UNION SELECT 1,2,3 --%' ESCAPE '!'"
     )
 
 
@@ -330,10 +329,7 @@ def test_strb_where_clause_dates_pass_through_unescaped():
     from zurich_opendata_mcp.tools.strb import _strb_where_clause
 
     where = _strb_where_clause(datum_von="2025-01-01", datum_bis="2025-12-31")
-    assert where == (
-        "\"Beschlussdatum\" >= '2025-01-01' AND "
-        "\"Beschlussdatum\" <= '2025-12-31'"
-    )
+    assert where == ("\"Beschlussdatum\" >= '2025-01-01' AND \"Beschlussdatum\" <= '2025-12-31'")
 
 
 def test_strb_where_clause_combines_conditions_with_and():
@@ -407,9 +403,7 @@ def test_user_agent_version_matches_package():
 async def test_sparql_returns_disabled_notice_without_calling_endpoint():
     from zurich_opendata_mcp.tools.sparql import SparqlQueryInput, zurich_sparql
 
-    result = await zurich_sparql(
-        SparqlQueryInput(query="SELECT * WHERE { ?s ?p ?o } LIMIT 1")
-    )
+    result = await zurich_sparql(SparqlQueryInput(query="SELECT * WHERE { ?s ?p ?o } LIMIT 1"))
     assert "nicht produktiv" in result
     # The disabled notice should always cite the alternatives.
     assert "zurich_search_datasets" in result
@@ -429,10 +423,13 @@ def test_select_gate_accepts_plain_select():
 def test_select_gate_accepts_cte_with_clause():
     from zurich_opendata_mcp.tools.datastore import _validate_select_only
 
-    assert _validate_select_only(
-        'WITH counts AS (SELECT "Jahr" AS y, COUNT(*) AS c FROM "abc" GROUP BY 1) '
-        "SELECT * FROM counts ORDER BY c DESC"
-    ) is None
+    assert (
+        _validate_select_only(
+            'WITH counts AS (SELECT "Jahr" AS y, COUNT(*) AS c FROM "abc" GROUP BY 1) '
+            "SELECT * FROM counts ORDER BY c DESC"
+        )
+        is None
+    )
 
 
 def test_select_gate_rejects_stacked_statements():
@@ -558,9 +555,7 @@ def test_get_client_is_synchronous_and_public():
     from zurich_opendata_mcp import http_client
 
     assert hasattr(http_client, "get_client")
-    assert not hasattr(http_client, "_get_client"), (
-        "Old name _get_client should have been removed."
-    )
+    assert not hasattr(http_client, "_get_client"), "Old name _get_client should have been removed."
     assert not inspect.iscoroutinefunction(http_client.get_client), (
         "get_client() should be a plain factory, not async."
     )
@@ -578,8 +573,7 @@ def test_handle_api_error_logs_warning(caplog):
 
     assert "Fehler bei Wetter" in result
     assert any(
-        "RuntimeError" in r.getMessage() and "Wetter" in r.getMessage()
-        for r in caplog.records
+        "RuntimeError" in r.getMessage() and "Wetter" in r.getMessage() for r in caplog.records
     )
 
 
@@ -599,11 +593,14 @@ def test_console_entry_point_targets_main():
 # ─── argparse port validation (rerun L-B) ────────────────────────────────────
 
 
-def test_parse_args_default_is_stdio():
+def test_parse_args_default_is_stdio(monkeypatch):
     from zurich_opendata_mcp.server import _parse_args
 
+    monkeypatch.delenv("HOST", raising=False)
+    monkeypatch.delenv("PORT", raising=False)
     args = _parse_args([])
     assert args.http is False
+    assert args.host == "127.0.0.1"
     assert args.port == 8000
 
 
@@ -645,7 +642,7 @@ def test_parse_args_rejects_missing_port_value():
 def test_live_data_tools_are_not_idempotent():
     """Tools that return upstream timestamps (weather, air, water,
     pedestrian, VBZ, parking) cannot satisfy the MCP idempotent contract
-    (same input -> same output). They must declare idempotentHint=False."""
+    (same input -> same output). They must declare idempotent_hint=False."""
     from zurich_opendata_mcp.app import mcp
 
     expected_non_idempotent = {
@@ -662,13 +659,11 @@ def test_live_data_tools_are_not_idempotent():
     for name in expected_non_idempotent:
         assert name in by_name, f"tool not registered: {name}"
         annotations = getattr(by_name[name], "annotations", None) or {}
-        if hasattr(annotations, "idempotentHint"):
-            value = annotations.idempotentHint
+        if hasattr(annotations, "idempotent_hint"):
+            value = annotations.idempotent_hint
         else:
             value = annotations.get("idempotentHint") if isinstance(annotations, dict) else None
-        assert value is False, (
-            f"{name}: idempotentHint={value!r} but tool returns live timestamps"
-        )
+        assert value is False, f"{name}: idempotent_hint={value!r} but tool returns live timestamps"
 
 
 # ─── Paris CQL injection regression (audit rerun H-2) ────────────────────────
@@ -695,10 +690,7 @@ def test_geschaeft_cql_neutralises_quote_injection():
     # No structural AND was injected (only the sortBy suffix is appended).
     assert " AND " not in cql
     # Exact structural equality — payload sits inside the escaped literal.
-    assert cql == (
-        'Titel any "foo\\" OR Titel any \\"bar"'
-        " sortBy beginn_start/sort.descending"
-    )
+    assert cql == ('Titel any "foo\\" OR Titel any \\"bar" sortBy beginn_start/sort.descending')
 
 
 def test_geschaeft_cql_escapes_department():
@@ -731,8 +723,7 @@ def test_behoerdenmandat_cql_neutralises_commission_injection():
     # active-only sentinel). Payload sits inside the escaped literal.
     assert cql.count(" AND ") == 1
     assert cql == (
-        'gremium any "GPK\\" OR gremium any \\"RPK"'
-        ' AND Dauer_end > "9999-12-31 00:00:00"'
+        'gremium any "GPK\\" OR gremium any \\"RPK" AND Dauer_end > "9999-12-31 00:00:00"'
     )
 
 
@@ -832,6 +823,7 @@ async def test_analyze_datasets_does_not_call_package_show():
     http_client_module.ckan_request = fake_ckan
     # Patch the symbol that was imported at module load time too.
     import zurich_opendata_mcp.tools.catalog as catalog_module
+
     catalog_module.ckan_request = fake_ckan
     try:
         result = await zurich_analyze_datasets(
@@ -854,7 +846,7 @@ async def test_analyze_datasets_does_not_call_package_show():
     assert "DataStore-Einträge" in markdown  # field info rendered for ds-1
 
     # Structured content carries machine-readable IDs and field info.
-    structured = result.structuredContent
+    structured = result.structured_content
     assert structured["total"] == 2
     assert structured["analyzed"] == 2
     ds1, ds2 = structured["datasets"]
@@ -910,7 +902,7 @@ async def test_search_datasets_returns_markdown_and_structured():
     assert "`geo_schulanlagen`" in markdown
 
     # Structured content for machine chaining.
-    s = result.structuredContent
+    s = result.structured_content
     assert s["total"] == 3
     assert s["count"] == 1
     assert s["next_offset"] == 1  # 3 total > offset 0 + 1 shown
@@ -918,7 +910,7 @@ async def test_search_datasets_returns_markdown_and_structured():
     assert ds["id"] == "geo_schulanlagen"
     assert ds["resources"][0]["id"] == "res-abc"
     assert ds["resources"][0]["datastore_active"] is True
-    assert result.isError is False
+    assert result.is_error is False
 
 
 @respx.mock
@@ -930,10 +922,10 @@ async def test_search_datasets_empty_is_not_an_error():
     result = await zurich_search_datasets(SearchDatasetsInput(query="zzz", rows=5))
 
     assert "Keine Datensätze" in result.content[0].text
-    assert result.structuredContent["total"] == 0
-    assert result.structuredContent["datasets"] == []
-    assert result.structuredContent["error"] is None
-    assert result.isError is False
+    assert result.structured_content["total"] == 0
+    assert result.structured_content["datasets"] == []
+    assert result.structured_content["error"] is None
+    assert result.is_error is False
 
 
 @respx.mock
@@ -956,7 +948,7 @@ async def test_get_dataset_structured_and_extras():
 
     result = await zurich_get_dataset(GetDatasetInput(dataset_id="ssd_schulferien"))
 
-    s = result.structuredContent
+    s = result.structured_content
     assert s["dataset"]["id"] == "ssd_schulferien"
     assert s["dataset"]["resources"][0]["id"] == "r1"
     # harvest_* extras are filtered out of the structured payload.
@@ -972,11 +964,11 @@ async def test_search_datasets_error_path_is_schema_valid():
 
     result = await zurich_search_datasets(SearchDatasetsInput(query="x"))
 
-    assert result.isError is True
+    assert result.is_error is True
     assert "Fehler" in result.content[0].text
     # Even on failure the structured payload validates against SearchResult.
-    assert result.structuredContent["error"]
-    assert result.structuredContent["datasets"] == []
+    assert result.structured_content["error"]
+    assert result.structured_content["datasets"] == []
 
 
 async def test_catalog_tools_advertise_output_schema():
@@ -1002,12 +994,13 @@ async def test_catalog_tools_advertise_output_schema():
                 }
             )
         )
-        out = await mcp._tool_manager.call_tool(
-            "zurich_search_datasets", {"params": {"query": "x"}}, convert_result=True
-        )
+        # mcp 2.x: ToolManager.call_tool() now requires a Context. The public
+        # MCPServer.call_tool() builds one and converts the result, so the test
+        # goes through it instead of reaching into the private manager.
+        out = await mcp.call_tool("zurich_search_datasets", {"params": {"query": "x"}})
 
     # convert_result validated structuredContent against the output model.
-    assert out.structuredContent["datasets"][0]["id"] == "ds-x"
+    assert out.structured_content["datasets"][0]["id"] == "ds-x"
     assert out.content[0].text.startswith("## Suchergebnis")
 
 

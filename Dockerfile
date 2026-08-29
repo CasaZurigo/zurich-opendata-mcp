@@ -17,5 +17,5 @@ ENV HOST=:: \
 
 EXPOSE 8000
 
-# MCP endpoint is served at /mcp (FastMCP streamable-http default).
+# MCP endpoint is served at /mcp (MCPServer streamable-http default).
 CMD ["zurich-opendata-mcp", "--http"]

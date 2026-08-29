@@ -6,11 +6,36 @@ name: CI
 on:
   pull_request:
 
+  # Weekly, on main, so `fresh-install` does not depend on someone opening a
+  # PR. A dependency range only breaks when *upstream* publishes, and upstream
+  # does not wait for this repo to be active: `mcp` 2.0.0 landed on 2026-07-28
+  # and broke every published release, and nothing here noticed. On a quiet
+  # week a PR-only trigger can leave that gap open indefinitely.
+  #
+  # Off-hour and off-minute deliberately: GitHub's scheduler is congested at
+  # :00 and at midnight UTC, and delays scheduled runs there.
+  #
+  # Note: GitHub disables scheduled workflows after 60 days without repository
+  # activity, and re-enabling is manual. If this repo goes quiet for that long,
+  # check that this trigger is still armed.
+  schedule:
+    - cron: "17 6 * * 1"   # Mondays, 06:17 UTC
+
+  # Manual re-run, for when an upstream release lands and waiting a week for
+  # the next scheduled run is not useful.
+  workflow_dispatch:
+
 permissions:
   contents: read
 
 jobs:
   check:
+    # Pull requests only. On a schedule this job would re-test nothing: it
+    # installs via `uv sync`, which resolves from the committed `uv.lock`, so
+    # a weekly run reinstalls the same pinned versions and re-runs the same
+    # deterministic suite. The whole point of the scheduled run is the resolve
+    # that is *not* frozen, which is `fresh-install`.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -18,18 +43,31 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: uv sync --extra dev
 
+      # Der Pin wirkt nur, wenn der Aufruf ihn auch trifft. Hier laeuft der
+      # Check unter `uv run`, damit er dasselbe ruff sieht wie die Gates.
+      - name: Ruff-Pin (PATH und Modul gegen pyproject.toml)
+        run: uv run python scripts/check_ruff_pin.py
+
+      # ruff kommt exakt gepinnt aus dem `dev`-Extra in pyproject.toml und
+      # damit aus uv.lock. Kein `--with ruff==...` mehr: Das ueberschrieb nur
+      # diesen einen Aufruf, waehrend die gesynchte Umgebung auf einer anderen
+      # Version stand — wer lokal `uv run ruff check` fuhr, lintete mit 0.15.18
+      # gegen ein Gate, das 0.16.1 fuhr.
       - name: Ruff
-        run: uv run ruff check
+        run: uv run ruff check src/ tests/ scripts/
+
+      - name: Ruff format
+        run: uv run ruff format --check src/ tests/ scripts/
 
       - name: Mypy
         run: uv run mypy
@@ -37,19 +75,80 @@ jobs:
       - name: Pytest
         run: uv run pytest
 
+      - name: Versions-Sync (pyproject ↔ server.json / README / src)
+        run: python scripts/check_version_sync.py
+
+  fresh-install:
+    name: Fresh-resolve install smoke
+    runs-on: ubuntu-latest
+    # The `check` job installs via `uv sync`, which resolves from `uv.lock` —
+    # a frozen resolve. That is why 0.5.1 could ship an uncapped
+    # `mcp[cli]>=1.28.1`, break on `mcp` 2.0.0 for every user, and still keep
+    # CI green: the lock pinned 1.28.1, so CI never saw the version a user got.
+    # This job resolves *freely* from the declared ranges, with no lockfile and
+    # a cold cache, and then starts the artifact instead of merely importing it.
+    #
+    # Runs on pull requests *and* weekly (see the `schedule` trigger above),
+    # because the input that makes it fail is not a commit here — it is an
+    # upstream release. Note what the weekly run is and is not for now that
+    # `mcp` is capped at `<3`: a new *major* is excluded by the cap, so it
+    # cannot break this. What it catches is a break inside a range still
+    # declared open — an `mcp` 2.x minor, or a new `httpx`/`pydantic`/`uvicorn`/
+    # `sqlparse`/`defusedxml` release the floors still admit. That is the same
+    # failure mode as 0.5.1, just one version segment further in.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build wheel
+        run: |
+          pip install --no-cache-dir build
+          python -m build --wheel
+
+      - name: Install the wheel into a clean venv (no lockfile, cold cache)
+        run: |
+          python -m venv /tmp/fresh
+          # --no-cache-dir is load-bearing: a warm wheel cache would reinstall
+          # a previously resolved dependency set and re-measure the old
+          # artifact, which is precisely how the 0.5.1 break went unnoticed.
+          /tmp/fresh/bin/pip install --no-cache-dir dist/*.whl
+
+      - name: Report the resolved dependency versions
+        # Printed unconditionally: when this job goes red because upstream
+        # released a new major, the resolved version is the first thing needed
+        # to tell an incompatibility apart from a flaky install.
+        run: /tmp/fresh/bin/pip list
+
+      - name: Start the installed server and complete an MCP handshake
+        run: /tmp/fresh/bin/python scripts/smoke_installed.py /tmp/fresh/bin/zurich-opendata-mcp
+
   audit:
     runs-on: ubuntu-latest
     # Alarm, don't block: a fresh advisory in a transitive dependency should
     # show up red here without blocking every unrelated PR (the `check`
     # matrix stays the required gate). Tighten to blocking once a clean
     # baseline has held for a while.
+    #
+    # Deliberately left to run on the weekly schedule too (no `if:` guard, in
+    # contrast to `check`). Like a broken dependency range, an advisory is
+    # published by someone else on their own timetable, so tying the only
+    # check for it to PR activity is the same mistake in a different place.
     continue-on-error: true
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           python-version: "3.12"
 
